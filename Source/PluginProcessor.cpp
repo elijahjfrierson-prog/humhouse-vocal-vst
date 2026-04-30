@@ -9,23 +9,6 @@ HumHouseVocalsProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-    // --- PITCH CORRECTION ---
-    params.push_back (std::make_unique<juce::AudioParameterBool>  ("pitchActive",    "Pitch Active",    false));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("retuneSpeed",    "Retune Speed",    0.0f, 1.0f, 0.5f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("humanize",       "Humanize",        0.0f, 1.0f, 0.2f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("snapAmount",     "Snap",            0.0f, 1.0f, 0.8f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("pitchSustain",   "Sustain",         0.0f, 1.0f, 0.5f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("detune",         "Detune (Hz)",     400.0f, 500.0f, 440.0f));
-    params.push_back (std::make_unique<juce::AudioParameterInt>   ("rootNote",       "Root Note",       0, 11, 0));   // C..B
-    params.push_back (std::make_unique<juce::AudioParameterInt>   ("scaleType",      "Scale Type",      0, 2, 0));    // Major/Minor/Chromatic
-    params.push_back (std::make_unique<juce::AudioParameterBool>  ("noteStabilizer", "Note Stabilizer", true));
-    params.push_back (std::make_unique<juce::AudioParameterBool>  ("formantPreserve","Formant Preserve",true));
-
-    // --- FORMANT SHIFTER ---
-    params.push_back (std::make_unique<juce::AudioParameterBool>  ("formantActive",    "Formant Active",    false));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantShift",     "Formant Shift",     -12.0f, 12.0f, 0.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantMix",       "Formant Mix",       0.0f, 1.0f, 1.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantSmooth",    "Formant Smooth",    0.0f, 1.0f, 0.3f));
 
     // --- NOISE GATE ---
     params.push_back (std::make_unique<juce::AudioParameterBool>  ("gateActive",    "Gate Active",       false));
@@ -168,7 +151,6 @@ HumHouseVocalsProcessor::~HumHouseVocalsProcessor() = default;
 void HumHouseVocalsProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     noiseGate.prepare(sampleRate, samplesPerBlock);
-    pitchEngine.prepare(sampleRate, samplesPerBlock);
     visualEQ.prepare(sampleRate, samplesPerBlock);
     compressor.prepare(sampleRate, samplesPerBlock);
     multibandComp.prepare(sampleRate, samplesPerBlock);
@@ -185,15 +167,7 @@ void HumHouseVocalsProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     // Pre-allocate dry buffer
     dryBuffer.setSize(2, samplesPerBlock);
 
-    // Pre-allocate dry delay line to match pitch engine latency
-    // This prevents comb filtering in the dry/wet mix
-    dryDelaySize = pitchEngine.getLatencySamples();
-    dryDelayBuffer.setSize(2, dryDelaySize);
-    dryDelayBuffer.clear();
-    dryDelayWritePos = 0;
-
-    // Report pitch engine latency to DAW for timing compensation
-    setLatencySamples(dryDelaySize);
+    setLatencySamples(0);
 }
 
 void HumHouseVocalsProcessor::releaseResources() {}
@@ -222,17 +196,6 @@ void HumHouseVocalsProcessor::processModule (int moduleId,
         case kGate:
             if (!inputSilent) noiseGate.process(buffer);
             break;
-
-        case kPitch:
-        {
-            bool pitchOn = apvts.getRawParameterValue("pitchActive")->load() > 0.5f;
-            pitchEngine.setBypass(!pitchOn);
-            pitchEngine.process(buffer);
-            detectedPitchHz.store(pitchEngine.getDetectedPitchHz());
-            targetPitchHz.store(pitchEngine.getTargetPitchHz());
-            correctionCents.store(pitchEngine.getCorrectionCents());
-            break;
-        }
 
         case kEQ:
             if (!inputSilent) visualEQ.process(buffer);
@@ -313,25 +276,14 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (std::abs(inputGain - 1.0f) > 0.001f)
         buffer.applyGain(inputGain);
 
-    // Save dry signal for dry/wet mix (delayed to match pitch engine latency)
+    // Save dry signal for dry/wet mix
     float dryWet = apvts.getRawParameterValue("dryWet")->load();
     bool needDry = (dryWet < 0.99f);
     if (needDry)
-        dryBuffer.setSize(numChannels, numSamples, false, false, true);
     {
-        int wp = dryDelayWritePos;
-        for (int i = 0; i < numSamples; ++i)
-        {
-            for (int ch = 0; ch < numChannels; ++ch)
-            {
-                float* delayData = dryDelayBuffer.getWritePointer(ch);
-                if (needDry)
-                    dryBuffer.setSample(ch, i, delayData[wp]);
-                delayData[wp] = buffer.getSample(ch, i);
-            }
-            wp = (wp + 1) % dryDelaySize;
-        }
-        dryDelayWritePos = wp;
+        dryBuffer.setSize(numChannels, numSamples, false, false, true);
+        for (int ch = 0; ch < numChannels; ++ch)
+            dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
     }
 
     // === REORDERABLE SIGNAL CHAIN ===
@@ -347,7 +299,7 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // Re-check silence after modules that produce tails (reverb, delay, pitch)
         // so downstream modules don't skip processing non-silent output
         int mod = localChain[static_cast<size_t>(slot)];
-        if (inputSilent && (mod == kReverb || mod == kDelay || mod == kPitch || mod == kDoubler))
+        if (inputSilent && (mod == kReverb || mod == kDelay || mod == kDoubler))
         {
             float postRms = buffer.getRMSLevel(0, 0, buffer.getNumSamples());
             if (postRms > 1e-6f)
@@ -393,18 +345,6 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 // ---------------------------------------------------------------------------
 void HumHouseVocalsProcessor::updateModuleParameters()
 {
-    // Pitch
-    pitchEngine.setRetuneSpeed(apvts.getRawParameterValue("retuneSpeed")->load());
-    pitchEngine.setHumanize(apvts.getRawParameterValue("humanize")->load());
-    pitchEngine.setSnapAmount(apvts.getRawParameterValue("snapAmount")->load());
-    pitchEngine.setPitchSustain(apvts.getRawParameterValue("pitchSustain")->load());
-    pitchEngine.setReferenceFrequency(apvts.getRawParameterValue("detune")->load());
-    pitchEngine.setRootNote(static_cast<int>(apvts.getRawParameterValue("rootNote")->load()));
-    pitchEngine.setScaleType(static_cast<int>(apvts.getRawParameterValue("scaleType")->load()));
-    pitchEngine.setNoteStabilizer(apvts.getRawParameterValue("noteStabilizer")->load() > 0.5f);
-    pitchEngine.setFormantPreserve(apvts.getRawParameterValue("formantPreserve")->load() > 0.5f);
-
-    // Formant Shifter — removed from signal chain (kept parameters for preset compat)
 
     // Noise Gate
     noiseGate.setActive(apvts.getRawParameterValue("gateActive")->load() > 0.5f);

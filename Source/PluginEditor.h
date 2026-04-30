@@ -19,20 +19,6 @@ public:
     void resized () override;
 
 private:
-    // Pitch heatmap strip — shows detected vs target pitch in real-time
-    class PitchHeatMap : public juce::Component
-    {
-    public:
-        PitchHeatMap();
-        void pushSample (float detectedHz, float targetHz, float correctionCents);
-        void paint (juce::Graphics&) override;
-    private:
-        static constexpr int kHistorySize = 256;
-        struct PitchSample { float detected; float target; float cents; };
-        std::array<PitchSample, kHistorySize> history {};
-        int writeIdx = 0;
-    };
-
     // Module strip — a labelled section with on/off toggle
     class ModuleStrip : public juce::Component
     {
@@ -82,7 +68,7 @@ private:
     humvocal::HumHouseLookAndFeel lnf;
 
     juce::Label titleLabel     { {}, "HUMHOUSE  VOCALS" };
-    juce::Label subtitleLabel  { {}, "pitch \u00b7 tone \u00b7 space" };
+    juce::Label subtitleLabel  { {}, "tone \u00b7 shape \u00b7 space" };
 
     // Preset controls (top-right corner)
     juce::ComboBox presetBox;
@@ -100,20 +86,7 @@ private:
     static constexpr int kBaseWidth  = 1100;
     static constexpr int kBaseHeight = 820;
 
-    PitchHeatMap pitchHeatMap;
     ChainStrip   chainStrip;
-
-    // Dedicated AutoTune section — prominent pitch display with key/scale
-    class AutoTuneSection : public juce::Component
-    {
-    public:
-        AutoTuneSection (HumHouseVocalsProcessor& p) : proc (p) {}
-        void paint (juce::Graphics& g) override;
-    private:
-        HumHouseVocalsProcessor& proc;
-    };
-
-    AutoTuneSection autoTuneSection;
 
     // Visual EQ display component with draggable band dots
     class EQCurveDisplay : public juce::Component
@@ -154,9 +127,7 @@ private:
     MBMeterDisplay mbMeterDisplay;
 
     // Module strips
-    ModuleStrip pitchStrip    { "AUTO-TUNE" };
     ModuleStrip gateStrip     { "GATE" };
-    ModuleStrip formantStrip  { "FORMANT" };
     ModuleStrip eqStrip       { "VISUAL EQ" };
     ModuleStrip compStrip     { "COMP" };
     ModuleStrip mbCompStrip   { "MULTIBAND" };
@@ -170,9 +141,6 @@ private:
     ModuleStrip lofiStrip     { "LO-FI" };
     ModuleStrip limiterStrip  { "LIMITER" };
 
-    // Scale selector
-    juce::ComboBox rootNoteBox;
-    juce::ComboBox scaleTypeBox;
 
     // Master section
     juce::Slider inputGainSlider, outputGainSlider, dryWetSlider;

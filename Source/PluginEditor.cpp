@@ -1,58 +1,6 @@
 #include "PluginEditor.h"
 
 // ===========================================================================
-// PitchHeatMap
-// ===========================================================================
-HumHouseVocalsEditor::PitchHeatMap::PitchHeatMap() {}
-
-void HumHouseVocalsEditor::PitchHeatMap::pushSample (float detectedHz, float targetHz, float cents)
-{
-    history[static_cast<size_t>(writeIdx)] = { detectedHz, targetHz, cents };
-    writeIdx = (writeIdx + 1) % kHistorySize;
-}
-
-void HumHouseVocalsEditor::PitchHeatMap::paint (juce::Graphics& g)
-{
-    auto bounds = getLocalBounds().toFloat();
-    g.setColour(juce::Colour(humvocal::HumHousePalette::kPanel));
-    g.fillRoundedRectangle(bounds, 4.0f);
-
-    float barW = bounds.getWidth() / static_cast<float>(kHistorySize);
-
-    for (int i = 0; i < kHistorySize; ++i)
-    {
-        int idx = (writeIdx + i) % kHistorySize;
-        auto& s = history[static_cast<size_t>(idx)];
-
-        juce::Colour col;
-        if (s.detected < 50.0f)
-        {
-            col = juce::Colour(humvocal::HumHousePalette::kPanel);
-        }
-        else
-        {
-            float centsClamped = juce::jlimit(-100.0f, 100.0f, s.cents);
-            float t = (centsClamped + 100.0f) / 200.0f; // 0 = flat, 0.5 = in tune, 1 = sharp
-
-            if (t < 0.5f)
-                col = juce::Colour(humvocal::HumHousePalette::kHeatCold).interpolatedWith(
-                    juce::Colour(humvocal::HumHousePalette::kHeatNeutral), t * 2.0f);
-            else
-                col = juce::Colour(humvocal::HumHousePalette::kHeatNeutral).interpolatedWith(
-                    juce::Colour(humvocal::HumHousePalette::kHeatHot), (t - 0.5f) * 2.0f);
-        }
-
-        float x = bounds.getX() + static_cast<float>(i) * barW;
-        g.setColour(col);
-        g.fillRect(x, bounds.getY() + 2.0f, barW, bounds.getHeight() - 4.0f);
-    }
-
-    // Border
-    g.setColour(juce::Colour(humvocal::HumHousePalette::kModuleBorder));
-    g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
-}
-
-// ===========================================================================
 // ModuleStrip
 // ===========================================================================
 HumHouseVocalsEditor::ModuleStrip::ModuleStrip (const juce::String& name)
@@ -143,7 +91,6 @@ HumHouseVocalsEditor::HumHouseVocalsEditor (HumHouseVocalsProcessor& p)
     : AudioProcessorEditor (&p),
       processorRef (p),
       chainStrip (p),
-      autoTuneSection (p),
       eqCurveDisplay (p),
       mbMeterDisplay (p)
 {
@@ -164,25 +111,10 @@ HumHouseVocalsEditor::HumHouseVocalsEditor (HumHouseVocalsProcessor& p)
     // Chain strip (draggable effect chain ordering)
     addAndMakeVisible(chainStrip);
 
-    // Pitch heatmap
-    addAndMakeVisible(pitchHeatMap);
-
-    // AutoTune section
-    addAndMakeVisible(autoTuneSection);
-
     // Visual EQ curve display
     addAndMakeVisible(eqCurveDisplay);
     // Multiband compressor meter display
     addAndMakeVisible(mbMeterDisplay);
-
-    // Scale selectors (inside AutoTune section area)
-    rootNoteBox.addItemList({"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"}, 1);
-    rootNoteBox.setSelectedId(1, juce::dontSendNotification);
-    addAndMakeVisible(rootNoteBox);
-
-    scaleTypeBox.addItemList({"Major","Minor","Chromatic"}, 1);
-    scaleTypeBox.setSelectedId(1, juce::dontSendNotification);
-    addAndMakeVisible(scaleTypeBox);
 
     // Master section
     for (auto* s : { &inputGainSlider, &outputGainSlider, &dryWetSlider })
@@ -209,7 +141,7 @@ HumHouseVocalsEditor::HumHouseVocalsEditor (HumHouseVocalsProcessor& p)
     applyUIScale(processorRef.getUIScale());
 
     // Force child strip re-layout (setSize may skip resized() if size unchanged)
-    for (auto* strip : { &pitchStrip, &gateStrip, &eqStrip, &compStrip,
+    for (auto* strip : { &gateStrip, &eqStrip, &compStrip,
                          &mbCompStrip, &deEsserStrip, &satStrip, &tapeStrip,
                          &widthStrip, &doublerStrip, &reverbStrip, &delayStrip,
                          &lofiStrip, &limiterStrip })
@@ -356,14 +288,6 @@ HumHouseVocalsEditor::~HumHouseVocalsEditor()
 // ===========================================================================
 void HumHouseVocalsEditor::setupModuleStrips()
 {
-    // AUTO-TUNE — Retune Speed, Humanize, Snap, Sustain, Detune
-    pitchStrip.addKnob("RETUNE", "Retune Speed - How fast pitch corrects");
-    pitchStrip.addKnob("HUMAN", "Humanize - Natural variation amount");
-    pitchStrip.addKnob("SNAP", "Snap Amount - Pitch correction strength");
-    pitchStrip.addKnob("SUSTAIN", "Sustain - Note hold stability");
-    pitchStrip.addKnob("DETUNE", "Detune - Reference frequency (Hz)");
-    addAndMakeVisible(pitchStrip);
-
     // NOISE GATE — Threshold, Ratio, Attack, Hold, Release, Range
     gateStrip.addKnob("THRESH", "Gate Threshold (dB)");
     gateStrip.addKnob("RATIO", "Gate Ratio (100 = hard gate)");
@@ -372,12 +296,6 @@ void HumHouseVocalsEditor::setupModuleStrips()
     gateStrip.addKnob("REL", "Gate Release Time (ms)");
     gateStrip.addKnob("RANGE", "Gate Range - Max attenuation (dB)");
     addAndMakeVisible(gateStrip);
-
-    // FORMANT — Shift, Mix, Smooth
-    formantStrip.addKnob("SHIFT", "Formant Shift (semitones)");
-    formantStrip.addKnob("MIX", "Formant Mix - Wet/Dry blend");
-    formantStrip.addKnob("SMOOTH", "Formant Smoothing");
-    addChildComponent(formantStrip);
 
     // VISUAL EQ — 12 bands are controlled via the EQ curve display; strip just has master gain
     eqStrip.addKnob("BAND 1", "EQ Band 1 Gain (Low - 30 Hz)");
@@ -483,14 +401,6 @@ void HumHouseVocalsEditor::attachParameters()
             std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(apvts, paramId, combo));
     };
 
-    // Pitch
-    attachButton(pitchStrip.activeButton, "pitchActive");
-    attachSlider(*pitchStrip.knobs[0], "retuneSpeed");
-    attachSlider(*pitchStrip.knobs[1], "humanize");
-    attachSlider(*pitchStrip.knobs[2], "snapAmount");
-    attachSlider(*pitchStrip.knobs[3], "pitchSustain");
-    attachSlider(*pitchStrip.knobs[4], "detune");
-
     // Noise Gate
     attachButton(gateStrip.activeButton, "gateActive");
     attachSlider(*gateStrip.knobs[0], "gateThreshold");
@@ -499,12 +409,6 @@ void HumHouseVocalsEditor::attachParameters()
     attachSlider(*gateStrip.knobs[3], "gateHold");
     attachSlider(*gateStrip.knobs[4], "gateRelease");
     attachSlider(*gateStrip.knobs[5], "gateRange");
-
-    // Formant
-    attachButton(formantStrip.activeButton, "formantActive");
-    attachSlider(*formantStrip.knobs[0], "formantShift");
-    attachSlider(*formantStrip.knobs[1], "formantMix");
-    attachSlider(*formantStrip.knobs[2], "formantSmooth");
 
     // Visual EQ (quick access bands 1, 6, 12)
     attachButton(eqStrip.activeButton, "veqActive");
@@ -587,70 +491,10 @@ void HumHouseVocalsEditor::attachParameters()
     attachSlider(*limiterStrip.knobs[1], "limiterRelease");
     attachSlider(*limiterStrip.knobs[2], "limiterOutputGain");
 
-    // Scale selectors
-    attachCombo(rootNoteBox, "rootNote");
-    attachCombo(scaleTypeBox, "scaleType");
-
     // Master
     attachSlider(inputGainSlider, "inputGain");
     attachSlider(outputGainSlider, "outputGain");
     attachSlider(dryWetSlider, "dryWet");
-}
-
-// ===========================================================================
-// AutoTune Section — prominent detected note display + pitch info
-// ===========================================================================
-void HumHouseVocalsEditor::AutoTuneSection::paint (juce::Graphics& g)
-{
-    auto bounds = getLocalBounds().toFloat();
-
-    // Dark panel background
-    g.setColour(juce::Colour(humvocal::HumHousePalette::kPanel));
-    g.fillRoundedRectangle(bounds, 8.0f);
-
-    // Accent border
-    g.setColour(juce::Colour(humvocal::HumHousePalette::kAccentDeep));
-    g.drawRoundedRectangle(bounds, 8.0f, 1.5f);
-
-    // Title
-    g.setColour(juce::Colour(humvocal::HumHousePalette::kAccent));
-    g.setFont(juce::Font(11.0f).boldened());
-    g.drawText("AUTO-TUNE", bounds.reduced(10, 4), juce::Justification::topLeft);
-
-    // Large detected note display
-    auto noteName = proc.getDetectedNoteName();
-    float cents = proc.getCorrectionCents();
-    float hz = proc.getDetectedPitchHz();
-
-    // Note name — big and centered
-    auto noteArea = bounds.reduced(8).withTrimmedTop(16);
-    g.setColour(juce::Colour(humvocal::HumHousePalette::kBone));
-    g.setFont(juce::Font(36.0f).boldened());
-    g.drawText(noteName, noteArea.removeFromLeft(noteArea.getWidth() * 0.4f),
-               juce::Justification::centred);
-
-    // Cents deviation indicator
-    auto infoArea = noteArea;
-    float centsClamped = juce::jlimit(-50.0f, 50.0f, cents);
-    juce::Colour centsCol;
-    if (std::abs(centsClamped) < 5.0f)
-        centsCol = juce::Colour(0xff2aaa2a); // green — in tune
-    else if (std::abs(centsClamped) < 20.0f)
-        centsCol = juce::Colour(0xffaaaa2a); // yellow — close
-    else
-        centsCol = juce::Colour(0xffaa3a2a); // red — off
-
-    g.setColour(centsCol);
-    g.setFont(juce::Font(16.0f).boldened());
-    juce::String centsStr = (cents >= 0 ? "+" : "") + juce::String(cents, 0) + " ct";
-    g.drawText(centsStr, infoArea.removeFromTop(infoArea.getHeight() / 2),
-               juce::Justification::centredLeft);
-
-    // Frequency readout
-    g.setColour(juce::Colour(humvocal::HumHousePalette::kMuted));
-    g.setFont(juce::Font(12.0f));
-    juce::String hzStr = hz > 50.0f ? juce::String(hz, 1) + " Hz" : "-- Hz";
-    g.drawText(hzStr, infoArea, juce::Justification::centredLeft);
 }
 
 // ===========================================================================
@@ -1037,16 +881,10 @@ void HumHouseVocalsEditor::ChainStrip::mouseMove (const juce::MouseEvent& e)
 }
 
 // ===========================================================================
-// Timer — update pitch heatmap + visual displays
+// Timer — update visual displays
 // ===========================================================================
 void HumHouseVocalsEditor::timerCallback()
 {
-    pitchHeatMap.pushSample(
-        processorRef.getDetectedPitchHz(),
-        processorRef.getTargetPitchHz(),
-        processorRef.getCorrectionCents());
-    pitchHeatMap.repaint();
-    autoTuneSection.repaint();
     eqCurveDisplay.repaint();
     mbMeterDisplay.repaint();
     chainStrip.repaint();
@@ -1110,14 +948,6 @@ void HumHouseVocalsEditor::resized()
     // === Chain Strip: draggable effect chain reordering ===
     chainStrip.setBounds(area.removeFromTop(38).reduced(10, 4));
 
-    // === AutoTune Section: note display + heatmap + key/scale selectors ===
-    auto autoArea = area.removeFromTop(100).reduced(10, 4);
-    autoTuneSection.setBounds(autoArea.removeFromLeft(220).reduced(2));
-    auto keyScaleArea = autoArea.removeFromLeft(130);
-    rootNoteBox.setBounds(keyScaleArea.removeFromTop(28).reduced(4, 2));
-    scaleTypeBox.setBounds(keyScaleArea.removeFromTop(28).reduced(4, 2));
-    pitchHeatMap.setBounds(autoArea.reduced(4, 2));
-
     // Master controls at bottom
     auto masterArea = area.removeFromBottom(80).reduced(20, 0);
     int masterKnobW = 70;
@@ -1144,8 +974,8 @@ void HumHouseVocalsEditor::resized()
     int stripH = stripArea.getHeight() / 2;
     int stripW = stripArea.getWidth() / 7;
 
-    ModuleStrip* row1[] = { &pitchStrip, &gateStrip, &eqStrip, &compStrip, &mbCompStrip, &deEsserStrip, &satStrip };
-    ModuleStrip* row2[] = { &tapeStrip, &widthStrip, &doublerStrip, &reverbStrip, &delayStrip, &lofiStrip, &limiterStrip };
+    ModuleStrip* row1[] = { &gateStrip, &eqStrip, &compStrip, &mbCompStrip, &deEsserStrip, &satStrip, &tapeStrip };
+    ModuleStrip* row2[] = { &widthStrip, &doublerStrip, &reverbStrip, &delayStrip, &lofiStrip, &limiterStrip };
 
     auto row1Area = stripArea.removeFromTop(stripH);
     for (auto* strip : row1)
