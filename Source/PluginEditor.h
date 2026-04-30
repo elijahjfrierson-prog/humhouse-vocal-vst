@@ -91,14 +91,29 @@ private:
 
     AutoTuneSection autoTuneSection;
 
-    // Visual EQ display component
+    // Visual EQ display component with draggable band dots
     class EQCurveDisplay : public juce::Component
     {
     public:
         EQCurveDisplay (HumHouseVocalsProcessor& p) : proc (p) {}
         void paint (juce::Graphics& g) override;
+        void mouseDown (const juce::MouseEvent& e) override;
+        void mouseDrag (const juce::MouseEvent& e) override;
+        void mouseUp (const juce::MouseEvent& e) override;
+        void mouseMove (const juce::MouseEvent& e) override;
     private:
         HumHouseVocalsProcessor& proc;
+        int dragBand = -1;
+        int hoverBand = -1;
+        static constexpr float kMinFreq = 20.0f;
+        static constexpr float kMaxFreq = 20000.0f;
+        static constexpr float kDbRange = 24.0f;
+
+        float freqToX (float freq, float width) const;
+        float xToFreq (float x, float width) const;
+        float gainToY (float gainDb, float height) const;
+        float yToGain (float y, float height) const;
+        int findBandAt (float x, float y) const;
     };
 
     // Multiband compressor meter display

@@ -44,9 +44,10 @@ public:
             gainReduction[i].store(0.0f);
         }
 
-        // Allocate band buffers
+        // Allocate band buffers and scratch buffer
         for (auto& buf : bandBuffers)
             buf.setSize(2, blockSize);
+        remainingBuf.setSize(2, blockSize);
     }
 
     void setActive (bool on) { active = on; }
@@ -113,6 +114,7 @@ private:
     std::array<float, kNumBands> envFollower {};
     std::array<std::atomic<float>, kNumBands> gainReduction;
     std::array<juce::AudioBuffer<float>, kNumBands> bandBuffers;
+    juce::AudioBuffer<float> remainingBuf;
 
     // Crossover filters (2nd order cascaded = 4th order L-R)
     using BiquadFilter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
@@ -133,9 +135,10 @@ private:
 
     void splitIntoBands (const juce::AudioBuffer<float>& input, int numSamples, int numChannels)
     {
-        // Make copies for splitting
-        juce::AudioBuffer<float> remaining;
-        remaining.makeCopyOf(input);
+        // Use pre-allocated buffer
+        remainingBuf.setSize(numChannels, numSamples, false, false, true);
+        for (int ch = 0; ch < numChannels; ++ch)
+            remainingBuf.copyFrom(ch, 0, input, ch, 0, numSamples);
 
         for (int b = 0; b < kNumBands; ++b)
         {
@@ -144,21 +147,23 @@ private:
             if (b < kNumCrossovers)
             {
                 // Extract the low part as this band
-                bandBuffers[b].makeCopyOf(remaining);
+                for (int ch = 0; ch < numChannels; ++ch)
+                    bandBuffers[b].copyFrom(ch, 0, remainingBuf, ch, 0, numSamples);
 
                 juce::dsp::AudioBlock<float> bandBlock (bandBuffers[b]);
                 juce::dsp::ProcessContextReplacing<float> ctx (bandBlock);
                 lowpass[b].process(ctx);
 
                 // remaining = highpass part
-                juce::dsp::AudioBlock<float> remBlock (remaining);
+                juce::dsp::AudioBlock<float> remBlock (remainingBuf);
                 juce::dsp::ProcessContextReplacing<float> remCtx (remBlock);
                 highpass[b].process(remCtx);
             }
             else
             {
                 // Last band = whatever is left
-                bandBuffers[b].makeCopyOf(remaining);
+                for (int ch = 0; ch < numChannels; ++ch)
+                    bandBuffers[b].copyFrom(ch, 0, remainingBuf, ch, 0, numSamples);
             }
         }
     }

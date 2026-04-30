@@ -22,6 +22,10 @@ public:
         postEQLong.prepare(spec);
         *postEQShort.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, 8000.0f, 0.707f);
         *postEQLong.state  = *juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, 8000.0f, 0.707f);
+
+        // Pre-allocate wet buffers
+        wetShortBuf.setSize(2, blockSize);
+        wetLongBuf.setSize(2, blockSize);
     }
 
     void setShortSize (float s) { shortParams.roomSize = juce::jlimit(0.0f, 1.0f, s); reverbShort.setParameters(shortParams); }
@@ -49,19 +53,19 @@ public:
         const int numSamples = buffer.getNumSamples();
         const int numChannels = buffer.getNumChannels();
 
-        // Create wet copies
-        juce::AudioBuffer<float> wetShort (numChannels, numSamples);
-        juce::AudioBuffer<float> wetLong  (numChannels, numSamples);
+        // Use pre-allocated buffers
+        wetShortBuf.setSize(numChannels, numSamples, false, false, true);
+        wetLongBuf.setSize(numChannels, numSamples, false, false, true);
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
-            wetShort.copyFrom(ch, 0, buffer, ch, 0, numSamples);
-            wetLong.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+            wetShortBuf.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+            wetLongBuf.copyFrom(ch, 0, buffer, ch, 0, numSamples);
         }
 
         // Process reverbs
-        juce::dsp::AudioBlock<float> blockShort (wetShort);
-        juce::dsp::AudioBlock<float> blockLong  (wetLong);
+        juce::dsp::AudioBlock<float> blockShort (wetShortBuf);
+        juce::dsp::AudioBlock<float> blockLong  (wetLongBuf);
         juce::dsp::ProcessContextReplacing<float> ctxShort (blockShort);
         juce::dsp::ProcessContextReplacing<float> ctxLong  (blockLong);
         reverbShort.process(ctxShort);
@@ -91,8 +95,8 @@ public:
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 float dry = buffer.getSample(ch, i);
-                float ws  = wetShort.getSample(ch, i) * shortMix * duckGain;
-                float wl  = wetLong.getSample(ch, i)  * longMix  * duckGain;
+                float ws  = wetShortBuf.getSample(ch, i) * shortMix * duckGain;
+                float wl  = wetLongBuf.getSample(ch, i)  * longMix  * duckGain;
                 buffer.setSample(ch, i, dry + ws + wl);
             }
         }
@@ -106,6 +110,9 @@ private:
     float duckAmount = 0.5f;
     float postEQFreq = 8000.0f;
     float duckEnvelope = 0.0f;
+
+    juce::AudioBuffer<float> wetShortBuf;
+    juce::AudioBuffer<float> wetLongBuf;
 
     juce::dsp::Reverb reverbShort;
     juce::dsp::Reverb reverbLong;

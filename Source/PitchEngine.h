@@ -24,8 +24,8 @@ public:
         sr = sampleRate;
         maxBlock = blockSize;
 
-        // YIN analysis window — 2x the longest expected period (for ~55 Hz = A1)
-        yinBufferSize = static_cast<int>(sr / 55.0) * 2;
+        // YIN analysis window — 2x the longest expected period (for ~30 Hz ≈ C1)
+        yinBufferSize = static_cast<int>(sr / 30.0) * 2;
         yinBuffer.resize(static_cast<size_t>(yinBufferSize), 0.0f);
 
         // Circular input buffer for overlap analysis
@@ -35,6 +35,12 @@ public:
         // PSOLA grain buffers
         grainBuffer.resize(static_cast<size_t>(yinBufferSize * 2), 0.0f);
         outputBuffer.resize(static_cast<size_t>(maxBlock + yinBufferSize * 2), 0.0f);
+
+        // Precompute Hann window table
+        constexpr int kWindowSize = 256;
+        windowTable.resize(kWindowSize);
+        for (int i = 0; i < kWindowSize; ++i)
+            windowTable[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi * static_cast<float>(i) / static_cast<float>(kWindowSize)));
 
         smoothedPitch = 0.0;
         currentPhase = 0.0;
@@ -78,7 +84,7 @@ public:
         float detectedHz = detectPitchYIN();
         lastDetectedHz = detectedHz;
 
-        if (detectedHz < 50.0f || detectedHz > 2000.0f)
+        if (detectedHz < 30.0f || detectedHz > 2000.0f)
         {
             lastTargetHz = detectedHz;
             lastCorrectionCents = 0.0f;
@@ -139,6 +145,7 @@ private:
     int ringWritePos = 0;
     std::vector<float> grainBuffer;
     std::vector<float> outputBuffer;
+    std::vector<float> windowTable;
 
     float referenceFreq = 440.0f;
     int rootNote = 0; // C
@@ -281,7 +288,12 @@ private:
                 float s0 = grainBuffer[static_cast<size_t>(srcIdx)];
                 float s1 = grainBuffer[static_cast<size_t>(srcIdx1)];
 
-                float window = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi * static_cast<float>(i) / static_cast<float>(grainLen)));
+                // Use precomputed window table (scaled lookup)
+                float windowPos = static_cast<float>(i) / static_cast<float>(grainLen) * static_cast<float>(windowTable.size() - 1);
+                int wIdx = static_cast<int>(windowPos);
+                float wFrac = windowPos - static_cast<float>(wIdx);
+                wIdx = juce::jlimit(0, static_cast<int>(windowTable.size()) - 2, wIdx);
+                float window = windowTable[static_cast<size_t>(wIdx)] * (1.0f - wFrac) + windowTable[static_cast<size_t>(wIdx + 1)] * wFrac;
 
                 outputBuffer[static_cast<size_t>(pos + i)] += (s0 + frac * (s1 - s0)) * window;
             }

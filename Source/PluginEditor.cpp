@@ -192,7 +192,7 @@ HumHouseVocalsEditor::HumHouseVocalsEditor (HumHouseVocalsProcessor& p)
     // Restore persisted UI scale
     applyUIScale(processorRef.getUIScale());
 
-    startTimerHz(30);
+    startTimerHz(15);
 }
 
 // ===========================================================================
@@ -605,8 +605,94 @@ void HumHouseVocalsEditor::AutoTuneSection::paint (juce::Graphics& g)
 }
 
 // ===========================================================================
-// EQ Curve Display — draws the 12-band frequency response
+// EQ Curve Display — interactive 12-band with draggable dot handles
 // ===========================================================================
+float HumHouseVocalsEditor::EQCurveDisplay::freqToX (float freq, float width) const
+{
+    return (std::log2(freq / kMinFreq)) / (std::log2(kMaxFreq / kMinFreq)) * width;
+}
+
+float HumHouseVocalsEditor::EQCurveDisplay::xToFreq (float x, float width) const
+{
+    float norm = juce::jlimit(0.0f, 1.0f, x / width);
+    return kMinFreq * std::pow(kMaxFreq / kMinFreq, norm);
+}
+
+float HumHouseVocalsEditor::EQCurveDisplay::gainToY (float gainDb, float height) const
+{
+    return (1.0f - ((gainDb + kDbRange) / (2.0f * kDbRange))) * height;
+}
+
+float HumHouseVocalsEditor::EQCurveDisplay::yToGain (float y, float height) const
+{
+    float norm = juce::jlimit(0.0f, 1.0f, y / height);
+    return (1.0f - norm) * 2.0f * kDbRange - kDbRange;
+}
+
+int HumHouseVocalsEditor::EQCurveDisplay::findBandAt (float mx, float my) const
+{
+    auto bounds = getLocalBounds().toFloat();
+    float hitRadius = 10.0f;
+    int closest = -1;
+    float closestDist = hitRadius * hitRadius;
+
+    for (int i = 0; i < HumHouseVocalsProcessor::kNumEQBands; ++i)
+    {
+        auto& bs = proc.getEQBandState(i);
+        float bx = bounds.getX() + freqToX(bs.frequency, bounds.getWidth());
+        float by = bounds.getY() + gainToY(bs.gain, bounds.getHeight());
+        float dx = mx - bx;
+        float dy = my - by;
+        float dist = dx * dx + dy * dy;
+        if (dist < closestDist)
+        {
+            closestDist = dist;
+            closest = i;
+        }
+    }
+    return closest;
+}
+
+void HumHouseVocalsEditor::EQCurveDisplay::mouseDown (const juce::MouseEvent& e)
+{
+    dragBand = findBandAt(static_cast<float>(e.x), static_cast<float>(e.y));
+}
+
+void HumHouseVocalsEditor::EQCurveDisplay::mouseDrag (const juce::MouseEvent& e)
+{
+    if (dragBand < 0) return;
+    auto bounds = getLocalBounds().toFloat();
+    float newFreq = xToFreq(static_cast<float>(e.x) - bounds.getX(), bounds.getWidth());
+    float newGain = yToGain(static_cast<float>(e.y) - bounds.getY(), bounds.getHeight());
+    newFreq = juce::jlimit(kMinFreq, kMaxFreq, newFreq);
+    newGain = juce::jlimit(-kDbRange, kDbRange, newGain);
+
+    auto si = juce::String(dragBand + 1);
+    if (auto* pFreq = proc.getAPVTS().getParameter("veqF" + si))
+        pFreq->setValueNotifyingHost(pFreq->convertTo0to1(newFreq));
+    if (auto* pGain = proc.getAPVTS().getParameter("veqG" + si))
+        pGain->setValueNotifyingHost(pGain->convertTo0to1(newGain));
+
+    repaint();
+}
+
+void HumHouseVocalsEditor::EQCurveDisplay::mouseUp (const juce::MouseEvent&)
+{
+    dragBand = -1;
+}
+
+void HumHouseVocalsEditor::EQCurveDisplay::mouseMove (const juce::MouseEvent& e)
+{
+    int newHover = findBandAt(static_cast<float>(e.x), static_cast<float>(e.y));
+    if (newHover != hoverBand)
+    {
+        hoverBand = newHover;
+        setMouseCursor(hoverBand >= 0 ? juce::MouseCursor::PointingHandCursor
+                                      : juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+}
+
 void HumHouseVocalsEditor::EQCurveDisplay::paint (juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
@@ -615,63 +701,102 @@ void HumHouseVocalsEditor::EQCurveDisplay::paint (juce::Graphics& g)
     g.setColour(juce::Colour(humvocal::HumHousePalette::kPanel));
     g.fillRoundedRectangle(bounds, 6.0f);
 
-    // Grid lines
-    g.setColour(juce::Colour(humvocal::HumHousePalette::kModuleBorder).withAlpha(0.3f));
-    // Horizontal 0dB line
-    float midY = bounds.getCentreY();
-    g.drawHorizontalLine(static_cast<int>(midY), bounds.getX() + 4, bounds.getRight() - 4);
-    // Frequency grid: 100, 1k, 10k
-    for (float freq : { 100.0f, 1000.0f, 10000.0f })
+    // ---- Grid ----
+    g.setFont(juce::Font(7.0f));
+
+    // dB grid lines: -12, -6, 0, +6, +12
+    for (float db : { -12.0f, -6.0f, 0.0f, 6.0f, 12.0f })
     {
-        float normX = (std::log2(freq / 20.0f)) / (std::log2(20000.0f / 20.0f));
-        float x = bounds.getX() + normX * bounds.getWidth();
-        g.drawVerticalLine(static_cast<int>(x), bounds.getY() + 4, bounds.getBottom() - 4);
+        float y = bounds.getY() + gainToY(db, bounds.getHeight());
+        g.setColour(juce::Colour(humvocal::HumHousePalette::kModuleBorder).withAlpha(db == 0.0f ? 0.5f : 0.2f));
+        g.drawHorizontalLine(static_cast<int>(y), bounds.getX() + 4, bounds.getRight() - 4);
+
+        g.setColour(juce::Colour(humvocal::HumHousePalette::kMuted).withAlpha(0.6f));
+        juce::String label = (db > 0 ? "+" : "") + juce::String(static_cast<int>(db));
+        g.drawText(label, static_cast<int>(bounds.getX() + 2), static_cast<int>(y - 6), 22, 12, juce::Justification::left);
     }
 
-    // Draw magnitude response curve
+    // Frequency grid
+    for (float freq : { 20.0f, 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f, 20000.0f })
+    {
+        float x = bounds.getX() + freqToX(freq, bounds.getWidth());
+        g.setColour(juce::Colour(humvocal::HumHousePalette::kModuleBorder).withAlpha(0.2f));
+        g.drawVerticalLine(static_cast<int>(x), bounds.getY() + 4, bounds.getBottom() - 10);
+
+        g.setColour(juce::Colour(humvocal::HumHousePalette::kMuted).withAlpha(0.6f));
+        juce::String label = freq >= 1000.0f ? juce::String(static_cast<int>(freq / 1000)) + "k"
+                                              : juce::String(static_cast<int>(freq));
+        g.drawText(label, static_cast<int>(x - 10), static_cast<int>(bounds.getBottom() - 11), 20, 10, juce::Justification::centred);
+    }
+
+    // ---- Magnitude response curve ----
     juce::Path curvePath;
     bool started = false;
-    float dbRange = 24.0f;
 
     for (float px = 0; px < bounds.getWidth(); px += 1.0f)
     {
         float normX = px / bounds.getWidth();
-        double freq = 20.0 * std::pow(20000.0 / 20.0, static_cast<double>(normX));
+        double freq = static_cast<double>(kMinFreq) * std::pow(static_cast<double>(kMaxFreq / kMinFreq), static_cast<double>(normX));
         float mag = proc.getEQMagnitudeAtFrequency(freq);
-        float db = juce::Decibels::gainToDecibels(mag, -dbRange);
-        float normY = 1.0f - ((db + dbRange) / (2.0f * dbRange));
-        float y = bounds.getY() + normY * bounds.getHeight();
+        float db = juce::Decibels::gainToDecibels(mag, -kDbRange);
+        float y = bounds.getY() + gainToY(db, bounds.getHeight());
 
-        if (!started)
-        {
-            curvePath.startNewSubPath(bounds.getX() + px, y);
-            started = true;
-        }
-        else
-        {
-            curvePath.lineTo(bounds.getX() + px, y);
-        }
+        if (!started) { curvePath.startNewSubPath(bounds.getX() + px, y); started = true; }
+        else          { curvePath.lineTo(bounds.getX() + px, y); }
     }
 
     g.setColour(juce::Colour(humvocal::HumHousePalette::kAccent).withAlpha(0.8f));
     g.strokePath(curvePath, juce::PathStrokeType(2.0f));
 
     // Fill under curve
-    juce::Path fillPath (curvePath);
+    juce::Path fillPath(curvePath);
     fillPath.lineTo(bounds.getRight(), bounds.getBottom());
     fillPath.lineTo(bounds.getX(), bounds.getBottom());
     fillPath.closeSubPath();
-    g.setColour(juce::Colour(humvocal::HumHousePalette::kAccent).withAlpha(0.15f));
+    g.setColour(juce::Colour(humvocal::HumHousePalette::kAccent).withAlpha(0.1f));
     g.fillPath(fillPath);
+
+    // ---- Draggable band dots ----
+    const auto accent = juce::Colour(humvocal::HumHousePalette::kAccent);
+    const auto bone = juce::Colour(humvocal::HumHousePalette::kBone);
+
+    for (int i = 0; i < HumHouseVocalsProcessor::kNumEQBands; ++i)
+    {
+        auto& bs = proc.getEQBandState(i);
+        float dotX = bounds.getX() + freqToX(bs.frequency, bounds.getWidth());
+        float dotY = bounds.getY() + gainToY(bs.gain, bounds.getHeight());
+        float radius = (i == dragBand || i == hoverBand) ? 7.0f : 5.0f;
+
+        // Outer glow for active/hovered
+        if (i == dragBand || i == hoverBand)
+        {
+            g.setColour(accent.withAlpha(0.3f));
+            g.fillEllipse(dotX - radius - 2, dotY - radius - 2, (radius + 2) * 2, (radius + 2) * 2);
+        }
+
+        // Dot fill
+        g.setColour(accent);
+        g.fillEllipse(dotX - radius, dotY - radius, radius * 2, radius * 2);
+
+        // Dot border
+        g.setColour(bone);
+        g.drawEllipse(dotX - radius, dotY - radius, radius * 2, radius * 2, 1.0f);
+
+        // Band number inside dot
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(radius > 5.0f ? 9.0f : 7.0f).boldened());
+        g.drawText(juce::String(i + 1), static_cast<int>(dotX - radius), static_cast<int>(dotY - radius),
+                   static_cast<int>(radius * 2), static_cast<int>(radius * 2), juce::Justification::centred);
+    }
 
     // Border
     g.setColour(juce::Colour(humvocal::HumHousePalette::kModuleBorder));
     g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
 
     // Title
-    g.setColour(juce::Colour(humvocal::HumHousePalette::kBone));
+    g.setColour(bone);
     g.setFont(juce::Font(10.0f).boldened());
-    g.drawText("12-BAND VISUAL EQ", bounds.reduced(6, 2), juce::Justification::topLeft);
+    g.drawText("EQUALIZER", bounds.reduced(6, 2), juce::Justification::topLeft);
 }
 
 // ===========================================================================
@@ -831,7 +956,7 @@ void HumHouseVocalsEditor::resized()
     dryWetLabel.setBounds(dwArea);
 
     // EQ Curve display + MB Meter display
-    auto vizArea = area.removeFromTop(110).reduced(10, 4);
+    auto vizArea = area.removeFromTop(140).reduced(10, 4);
     auto eqVizArea = vizArea.removeFromLeft(vizArea.getWidth() * 2 / 3);
     eqCurveDisplay.setBounds(eqVizArea.reduced(2));
     mbMeterDisplay.setBounds(vizArea.reduced(2));

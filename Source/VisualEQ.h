@@ -51,18 +51,26 @@ public:
     {
         if (index < 0 || index >= kNumBands) return;
         auto& b = bands[static_cast<size_t>(index)];
-        b.frequency = freqHz;
-        b.gain      = gainDb;
-        b.q         = q;
-        b.type      = type;
-        b.active    = bandActive;
-        updateCoefficients(index);
+        // Only update coefficients if something actually changed
+        if (b.frequency != freqHz || b.gain != gainDb || b.q != q || b.type != type)
+        {
+            b.frequency = freqHz;
+            b.gain      = gainDb;
+            b.q         = q;
+            b.type      = type;
+            b.active    = bandActive;
+            updateCoefficients(index);
+        }
+        else
+        {
+            b.active = bandActive;
+        }
     }
 
-    void setBandFreq (int i, float f)   { if (i >= 0 && i < kNumBands) { bands[i].frequency = f; updateCoefficients(i); } }
-    void setBandGain (int i, float g)   { if (i >= 0 && i < kNumBands) { bands[i].gain = g; updateCoefficients(i); } }
-    void setBandQ    (int i, float q)   { if (i >= 0 && i < kNumBands) { bands[i].q = q; updateCoefficients(i); } }
-    void setBandType (int i, int t)     { if (i >= 0 && i < kNumBands) { bands[i].type = static_cast<EQBandType>(t); updateCoefficients(i); } }
+    void setBandFreq (int i, float f)   { if (i >= 0 && i < kNumBands && bands[i].frequency != f) { bands[i].frequency = f; updateCoefficients(i); } }
+    void setBandGain (int i, float g)   { if (i >= 0 && i < kNumBands && bands[i].gain != g) { bands[i].gain = g; updateCoefficients(i); } }
+    void setBandQ    (int i, float q)   { if (i >= 0 && i < kNumBands && bands[i].q != q) { bands[i].q = q; updateCoefficients(i); } }
+    void setBandType (int i, int t)     { if (i >= 0 && i < kNumBands && bands[i].type != static_cast<EQBandType>(t)) { bands[i].type = static_cast<EQBandType>(t); updateCoefficients(i); } }
     void setBandActive(int i, bool a)   { if (i >= 0 && i < kNumBands) { bands[i].active = a; } }
 
     const BandState& getBandState (int i) const { return bands[static_cast<size_t>(juce::jlimit(0, kNumBands - 1, i))]; }

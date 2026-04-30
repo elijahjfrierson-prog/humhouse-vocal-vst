@@ -26,6 +26,9 @@ public:
         juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32>(blockSize), 2 };
         postFilter.prepare(spec);
         *postFilter.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, 6000.0f, 0.707f);
+
+        // Pre-allocate wet buffer
+        wetBuffer.setSize(2, blockSize);
     }
 
     void setTimeMs (float ms) { delayTimeMs = juce::jlimit(10.0f, 2000.0f, ms); }
@@ -51,8 +54,8 @@ public:
         float attackCoeff  = std::exp(-1.0f / (static_cast<float>(sr) * 0.005f));
         float releaseCoeff = std::exp(-1.0f / (static_cast<float>(sr) * 0.100f));
 
-        // Separate wet buffer for filtering only the delay signal
-        juce::AudioBuffer<float> wetBuffer (numChannels, numSamples);
+        // Use pre-allocated buffer
+        wetBuffer.setSize(numChannels, numSamples, false, false, true);
         wetBuffer.clear();
 
         for (int i = 0; i < numSamples; ++i)
@@ -76,19 +79,17 @@ public:
                 int readIdx = (writePos - delaySamples + bufSize) % bufSize;
                 float delayed = delayBuf[static_cast<size_t>(ch)][static_cast<size_t>(readIdx)];
 
-                // Feedback with filter in the feedback path (progressively darker repeats)
                 int fbCh = (pingPong && numChannels >= 2) ? (1 - ch) : ch;
                 delayBuf[static_cast<size_t>(ch)][static_cast<size_t>(writePos)] =
                     dry + delayBuf[static_cast<size_t>(fbCh)][static_cast<size_t>(readIdx)] * feedback;
 
-                // Write wet signal to separate buffer
                 wetBuffer.setSample(ch, i, delayed * mix * duckGain);
             }
 
             writePos = (writePos + 1) % bufSize;
         }
 
-        // Post-delay filter on wet signal only (darken repeats, preserve dry)
+        // Post-delay filter on wet signal only
         juce::dsp::AudioBlock<float> wetBlock (wetBuffer);
         juce::dsp::ProcessContextReplacing<float> wetCtx (wetBlock);
         postFilter.process(wetCtx);
@@ -111,6 +112,7 @@ private:
     int writePos = 0;
 
     std::array<std::vector<float>, 2> delayBuf;
+    juce::AudioBuffer<float> wetBuffer;
 
     using IIRFilter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
                                                       juce::dsp::IIR::Coefficients<float>>;

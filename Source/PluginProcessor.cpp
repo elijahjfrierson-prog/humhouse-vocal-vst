@@ -166,6 +166,9 @@ void HumHouseVocalsProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     delay.prepare(sampleRate, samplesPerBlock);
     lofiFilter.prepare(sampleRate, samplesPerBlock);
     limiter.prepare(sampleRate, samplesPerBlock);
+
+    // Pre-allocate dry buffer
+    dryBuffer.setSize(2, samplesPerBlock);
 }
 
 void HumHouseVocalsProcessor::releaseResources() {}
@@ -195,13 +198,14 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
 
-    // Save dry signal for dry/wet mix
-    juce::AudioBuffer<float> dryBuffer;
+    // Save dry signal for dry/wet mix (use pre-allocated buffer)
     float dryWet = apvts.getRawParameterValue("dryWet")->load();
     bool needDry = (dryWet < 0.99f);
     if (needDry)
     {
-        dryBuffer.makeCopyOf(buffer);
+        dryBuffer.setSize(numChannels, numSamples, false, false, true);
+        for (int ch = 0; ch < numChannels; ++ch)
+            dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
     }
 
     // Input gain

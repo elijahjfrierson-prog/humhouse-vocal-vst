@@ -9,7 +9,7 @@ namespace humvocal
 
 // Formant shifter / vocal bender — shifts the vocal formant envelope
 // up or down without changing pitch.  Inspired by Waves Vocal Bender
-// but built on original DSP (LPC-style spectral envelope warping).
+// but built on original DSP (bandpass formant band warping).
 //
 // Parameters:
 //   shift      – formant shift in semitones (-12 … +12)
@@ -18,17 +18,18 @@ namespace humvocal
 class FormantShifter
 {
 public:
-    void prepare (double sampleRate, int /*blockSize*/)
+    void prepare (double sampleRate, int blockSize)
     {
         sr = sampleRate;
         smoothedShift = 0.0f;
+        lastAppliedShift = -999.0f; // force first update
 
         for (auto& f : allpassFiltersL) f.reset();
         for (auto& f : allpassFiltersR) f.reset();
         for (auto& f : bandpassL)       f.reset();
         for (auto& f : bandpassR)       f.reset();
 
-        juce::dsp::ProcessSpec spec { sampleRate, 512u, 1 };
+        juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32>(blockSize), 1 };
         for (int i = 0; i < kNumFormants; ++i)
         {
             bandpassL[i].prepare(spec);
@@ -50,39 +51,42 @@ public:
         const int numSamples  = buffer.getNumSamples();
         const int numChannels = buffer.getNumChannels();
 
-        // Smooth the shift parameter
+        // Smooth the shift parameter ONCE per block (not per sample)
         float alpha = 0.001f + smoothCoeff * 0.05f;
+        float blocksAlpha = 1.0f - std::pow(1.0f - alpha, static_cast<float>(numSamples));
+        smoothedShift += blocksAlpha * (targetShift - smoothedShift);
 
-        for (int s = 0; s < numSamples; ++s)
+        // Only recalculate filter coefficients when shift actually changes
+        float ratio = std::pow(2.0f, smoothedShift / 12.0f);
+        if (std::abs(smoothedShift - lastAppliedShift) > 0.01f)
         {
-            smoothedShift += alpha * (targetShift - smoothedShift);
-
-            // Compute formant shift ratio (semitones → ratio)
-            float ratio = std::pow(2.0f, smoothedShift / 12.0f);
-
-            // Update formant band center frequencies
             updateFormantFrequencies(ratio);
+            lastAppliedShift = smoothedShift;
+        }
 
-            for (int ch = 0; ch < numChannels; ++ch)
+        // Process all samples through the filters
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto& bp  = (ch == 0) ? bandpassL : bandpassR;
+            auto& ap  = (ch == 0) ? allpassFiltersL : allpassFiltersR;
+
+            const float* readPtr = buffer.getReadPointer(ch);
+
+            // Process each formant band and sum
+            // Use a temporary accumulator array to avoid redundant getSample/setSample
+            for (int s = 0; s < numSamples; ++s)
             {
-                float dry = buffer.getSample(ch, s);
+                float dry = readPtr[s];
                 float wet = 0.0f;
 
-                auto& bp  = (ch == 0) ? bandpassL : bandpassR;
-                auto& ap  = (ch == 0) ? allpassFiltersL : allpassFiltersR;
-
-                // Sum shifted formant bands
                 for (int b = 0; b < kNumFormants; ++b)
                 {
                     float bandSig = bp[b].processSample(dry);
-                    // Apply allpass for phase coherence
                     bandSig = ap[b].processSample(bandSig);
                     wet += bandSig * formantGains[b];
                 }
 
-                // Mix
-                float out = dry * (1.0f - wetMix) + wet * wetMix;
-                buffer.setSample(ch, s, out);
+                buffer.setSample(ch, s, dry * (1.0f - wetMix) + wet * wetMix);
             }
         }
     }
@@ -99,6 +103,7 @@ private:
     bool active = false;
     float targetShift = 0.0f;
     float smoothedShift = 0.0f;
+    float lastAppliedShift = -999.0f;
     float wetMix = 1.0f;
     float smoothCoeff = 0.3f;
 

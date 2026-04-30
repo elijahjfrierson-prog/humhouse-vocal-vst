@@ -65,7 +65,7 @@ public:
     juce::String getDetectedNoteName() const
     {
         float hz = detectedPitchHz.load();
-        if (hz < 50.0f) return "--";
+        if (hz < 30.0f) return "--";
         static const char* names[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
         float midi = 69.0f + 12.0f * std::log2(hz / 440.0f);
         int note = static_cast<int>(std::round(midi));
@@ -80,6 +80,8 @@ public:
 
     // Visual EQ magnitude response for UI
     float getEQMagnitudeAtFrequency (double freq) const { return visualEQ.getMagnitudeAtFrequency(freq); }
+    const humvocal::VisualEQ::BandState& getEQBandState (int i) const { return visualEQ.getBandState(i); }
+    static constexpr int kNumEQBands = humvocal::VisualEQ::kNumBands;
 
 private:
     juce::AudioProcessorValueTreeState apvts;
@@ -105,6 +107,9 @@ private:
     humvocal::VocalDelay        delay;
     humvocal::LoFiFilter        lofiFilter;
     humvocal::OutputLimiter     limiter;
+
+    // Pre-allocated dry buffer for dry/wet mix (avoid audio-thread allocation)
+    juce::AudioBuffer<float> dryBuffer;
 
     // Atomic pitch feedback
     std::atomic<float> detectedPitchHz { 0.0f };

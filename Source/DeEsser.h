@@ -20,6 +20,9 @@ public:
         attenuator.prepare(spec);
         updateFilters();
         envelope = 0.0f;
+
+        // Pre-allocate sidechain buffer
+        sidechainBuffer.setSize(2, blockSize);
     }
 
     void setFrequency (float hz) { centreFreq = hz; updateFilters(); }
@@ -34,12 +37,12 @@ public:
         const int numSamples = buffer.getNumSamples();
         const int numChannels = buffer.getNumChannels();
 
-        // Detect sibilant energy
-        juce::AudioBuffer<float> sidechain (numChannels, numSamples);
+        // Use pre-allocated buffer (resize only if needed, no alloc in steady state)
+        sidechainBuffer.setSize(numChannels, numSamples, false, false, true);
         for (int ch = 0; ch < numChannels; ++ch)
-            sidechain.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+            sidechainBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
 
-        juce::dsp::AudioBlock<float> scBlock (sidechain);
+        juce::dsp::AudioBlock<float> scBlock (sidechainBuffer);
         juce::dsp::ProcessContextReplacing<float> scCtx (scBlock);
         detector.process(scCtx);
 
@@ -50,7 +53,7 @@ public:
         {
             float level = 0.0f;
             for (int ch = 0; ch < numChannels; ++ch)
-                level = std::max(level, std::abs(sidechain.getSample(ch, i)));
+                level = std::max(level, std::abs(sidechainBuffer.getSample(ch, i)));
 
             if (level > envelope)
                 envelope = attackCoeff * envelope + (1.0f - attackCoeff) * level;
@@ -67,11 +70,10 @@ public:
                 gain = juce::Decibels::decibelsToGain(-reductionApplied);
             }
 
-            // Apply gain reduction in the sibilant band only
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 float dry = buffer.getSample(ch, i);
-                float sib = sidechain.getSample(ch, i);
+                float sib = sidechainBuffer.getSample(ch, i);
                 buffer.setSample(ch, i, dry - sib * (1.0f - gain));
             }
         }
@@ -84,6 +86,8 @@ private:
     float thresholdDb = -20.0f;
     float reductionDb = -12.0f;
     float envelope = 0.0f;
+
+    juce::AudioBuffer<float> sidechainBuffer;
 
     using IIRFilter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
                                                       juce::dsp::IIR::Coefficients<float>>;
