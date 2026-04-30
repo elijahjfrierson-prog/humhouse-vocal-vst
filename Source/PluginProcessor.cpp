@@ -304,7 +304,7 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (int ch = 0; ch < numChannels; ++ch)
         maxRMS = std::max(maxRMS, buffer.getRMSLevel(ch, 0, numSamples));
 
-    const bool inputSilent = (maxRMS < 1e-6f);
+    bool inputSilent = (maxRMS < 1e-6f);
 
     updateModuleParameters();
 
@@ -341,7 +341,19 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         localChain = chainOrder;
     }
     for (int slot = 0; slot < kNumModules; ++slot)
+    {
         processModule (localChain[static_cast<size_t>(slot)], buffer, inputSilent);
+
+        // Re-check silence after modules that produce tails (reverb, delay, pitch)
+        // so downstream modules don't skip processing non-silent output
+        int mod = localChain[static_cast<size_t>(slot)];
+        if (inputSilent && (mod == kReverb || mod == kDelay || mod == kPitch || mod == kDoubler))
+        {
+            float postRms = buffer.getRMSLevel(0, 0, buffer.getNumSamples());
+            if (postRms > 1e-6f)
+                inputSilent = false;
+        }
+    }
 
     // Output gain
     float outputGain = juce::Decibels::decibelsToGain(apvts.getRawParameterValue("outputGain")->load());

@@ -194,12 +194,25 @@ public:
             // ==== TD-PSOLA synthesis ====
 
             // ---- Spawn grain immediately if transitioning from passthrough ----
+            // Start grain at center (Hann peak) so first output sample has
+            // full amplitude instead of ramping from zero
             {
                 bool anyActive = false;
                 for (auto& g : grains)
                     if (g.active) { anyActive = true; break; }
                 if (!anyActive && synthPhaseCounter == 0)
+                {
                     spawnGrain (detectedPeriod);
+                    // Pre-advance the grain to its center (Hann peak)
+                    for (auto& g : grains)
+                    {
+                        if (g.active && g.readOffset == 0)
+                        {
+                            g.readOffset = g.length / 2;
+                            break;
+                        }
+                    }
+                }
             }
 
             // ---- Check if it's time to spawn a new grain ----
