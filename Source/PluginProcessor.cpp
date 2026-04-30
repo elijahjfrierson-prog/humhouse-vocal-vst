@@ -211,7 +211,83 @@ bool HumHouseVocalsProcessor::isBusesLayoutSupported (const BusesLayout& layouts
 }
 
 // ---------------------------------------------------------------------------
-// The main audio callback — zero-latency signal chain
+// Process a single module by ID (used by the reorderable chain)
+// ---------------------------------------------------------------------------
+void HumHouseVocalsProcessor::processModule (int moduleId,
+                                             juce::AudioBuffer<float>& buffer,
+                                             bool inputSilent)
+{
+    switch (moduleId)
+    {
+        case kGate:
+            if (!inputSilent) noiseGate.process(buffer);
+            break;
+
+        case kPitch:
+        {
+            bool pitchOn = apvts.getRawParameterValue("pitchActive")->load() > 0.5f;
+            pitchEngine.setBypass(!pitchOn);
+            pitchEngine.process(buffer);
+            detectedPitchHz.store(pitchEngine.getDetectedPitchHz());
+            targetPitchHz.store(pitchEngine.getTargetPitchHz());
+            correctionCents.store(pitchEngine.getCorrectionCents());
+            break;
+        }
+
+        case kEQ:
+            if (!inputSilent) visualEQ.process(buffer);
+            break;
+
+        case kComp:
+            if (!inputSilent) compressor.process(buffer);
+            break;
+
+        case kMBComp:
+            if (!inputSilent) multibandComp.process(buffer);
+            break;
+
+        case kDeEss:
+            if (!inputSilent) deEsser.process(buffer);
+            break;
+
+        case kSat:
+            if (!inputSilent) saturation.process(buffer);
+            break;
+
+        case kTape:
+            if (!inputSilent) tapeEmulation.process(buffer);
+            break;
+
+        case kWidth:
+            if (!inputSilent) stereoWidth.process(buffer);
+            break;
+
+        case kDoubler:
+            if (!inputSilent) doubler.process(buffer);
+            break;
+
+        case kReverb:
+            reverb.process(buffer);
+            break;
+
+        case kDelay:
+            delay.process(buffer);
+            break;
+
+        case kLoFi:
+            if (!inputSilent) lofiFilter.process(buffer);
+            break;
+
+        case kLimiter:
+            limiter.process(buffer);
+            break;
+
+        default: break;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The main audio callback — reorderable signal chain
 // ---------------------------------------------------------------------------
 void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                             juce::MidiBuffer& /*midiMessages*/)
@@ -224,12 +300,11 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (numSamples == 0 || numChannels == 0)
         return;
 
-    // --- Silence detection: skip CPU-heavy processing when input is silent ---
     float maxRMS = 0.0f;
     for (int ch = 0; ch < numChannels; ++ch)
         maxRMS = std::max(maxRMS, buffer.getRMSLevel(ch, 0, numSamples));
 
-    const bool inputSilent = (maxRMS < 1e-6f);
+    bool inputSilent = (maxRMS < 1e-6f);
 
     updateModuleParameters();
 
@@ -238,10 +313,7 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (std::abs(inputGain - 1.0f) > 0.001f)
         buffer.applyGain(inputGain);
 
-    // Save dry signal for dry/wet mix — delayed to match pitch engine latency
-    // so we don't create a comb filter when mixing dry + wet.
-    // The delay line ALWAYS advances so the buffer stays in sync even when
-    // dryWet is 1.0 — prevents stale audio burst if user automates dryWet.
+    // Save dry signal for dry/wet mix (delayed to match pitch engine latency)
     float dryWet = apvts.getRawParameterValue("dryWet")->load();
     bool needDry = (dryWet < 0.99f);
     if (needDry)
@@ -262,73 +334,33 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         dryDelayWritePos = wp;
     }
 
-    // === SIGNAL CHAIN ===
-
-    // 0. Noise Gate (first in chain — removes noise before processing)
-    if (!inputSilent)
-        noiseGate.process(buffer);
-
-    // 1. Pitch Correction — ALWAYS route through for consistent latency
-    //    Even during silence, the ring buffer must advance so DAW timing
-    //    compensation stays aligned and no stale data glitches on resume
+    // === REORDERABLE SIGNAL CHAIN ===
+    std::array<int, kNumModules> localChain;
     {
-        bool pitchOn = apvts.getRawParameterValue("pitchActive")->load() > 0.5f;
-        pitchEngine.setBypass(!pitchOn);
-        pitchEngine.process(buffer);
+        juce::SpinLock::ScopedLockType lock (chainLock);
+        localChain = chainOrder;
     }
-
-    // Update pitch feedback atomics
-    detectedPitchHz.store(pitchEngine.getDetectedPitchHz());
-    targetPitchHz.store(pitchEngine.getTargetPitchHz());
-    correctionCents.store(pitchEngine.getCorrectionCents());
-
-    if (!inputSilent)
+    for (int slot = 0; slot < kNumModules; ++slot)
     {
-        // 2. Visual EQ (12-band)
-        visualEQ.process(buffer);
+        processModule (localChain[static_cast<size_t>(slot)], buffer, inputSilent);
 
-        // 3. Compressor
-        compressor.process(buffer);
-
-        // 4. Multiband Compressor
-        multibandComp.process(buffer);
-
-        // 5. De-Esser
-        deEsser.process(buffer);
-
-        // 6. Saturation
-        saturation.process(buffer);
-
-        // 7. Tape Emulation
-        tapeEmulation.process(buffer);
-
-        // 8. Stereo Width
-        stereoWidth.process(buffer);
-
-        // 9. Doubler
-        doubler.process(buffer);
+        // Re-check silence after modules that produce tails (reverb, delay, pitch)
+        // so downstream modules don't skip processing non-silent output
+        int mod = localChain[static_cast<size_t>(slot)];
+        if (inputSilent && (mod == kReverb || mod == kDelay || mod == kPitch || mod == kDoubler))
+        {
+            float postRms = buffer.getRMSLevel(0, 0, buffer.getNumSamples());
+            if (postRms > 1e-6f)
+                inputSilent = false;
+        }
     }
-
-    // Time-based effects always process (so tails decay naturally)
-    // 10. Reverb
-    reverb.process(buffer);
-
-    // 11. Delay
-    delay.process(buffer);
-
-    // 12. Lo-Fi Signal Cutoff (stateless, skip when silent)
-    if (!inputSilent)
-        lofiFilter.process(buffer);
-
-    // 13. Output Limiter
-    limiter.process(buffer);
 
     // Output gain
     float outputGain = juce::Decibels::decibelsToGain(apvts.getRawParameterValue("outputGain")->load());
     if (std::abs(outputGain - 1.0f) > 0.001f)
         buffer.applyGain(outputGain);
 
-    // --- Safety: clamp output to prevent NaN/inf/clipping ---
+    // Safety: clamp output
     for (int ch = 0; ch < numChannels; ++ch)
     {
         float* data = buffer.getWritePointer(ch);
@@ -498,6 +530,19 @@ void HumHouseVocalsProcessor::getStateInformation (juce::MemoryBlock& destData)
     auto state = apvts.copyState();
     state.setProperty("uiScale", uiScale.load(), nullptr);
     state.setProperty("presetIndex", presetManager ? presetManager->getCurrentPresetIndex() : -1, nullptr);
+
+    // Persist chain order as comma-separated string
+    juce::String chainStr;
+    {
+        juce::SpinLock::ScopedLockType lock (chainLock);
+        for (int i = 0; i < kNumModules; ++i)
+        {
+            if (i > 0) chainStr += ",";
+            chainStr += juce::String(chainOrder[static_cast<size_t>(i)]);
+        }
+    }
+    state.setProperty("chainOrder", chainStr, nullptr);
+
     auto xml = state.createXml();
     copyXmlToBinary (*xml, destData);
 }
@@ -510,6 +555,33 @@ void HumHouseVocalsProcessor::setStateInformation (const void* data, int sizeInB
         auto state = juce::ValueTree::fromXml (*xml);
         if (state.hasProperty("uiScale"))
             uiScale.store(static_cast<float>(state.getProperty("uiScale")));
+
+        // Restore chain order (validate it's a valid permutation)
+        if (state.hasProperty("chainOrder"))
+        {
+            auto chainStr = state.getProperty("chainOrder").toString();
+            auto tokens = juce::StringArray::fromTokens(chainStr, ",", "");
+            if (tokens.size() == kNumModules)
+            {
+                std::array<int, kNumModules> candidate {};
+                std::array<bool, kNumModules> seen {};
+                bool valid = true;
+                for (int i = 0; i < kNumModules; ++i)
+                {
+                    int v = tokens[i].getIntValue();
+                    if (v < 0 || v >= kNumModules || seen[static_cast<size_t>(v)])
+                    { valid = false; break; }
+                    seen[static_cast<size_t>(v)] = true;
+                    candidate[static_cast<size_t>(i)] = v;
+                }
+                if (valid)
+                {
+                    juce::SpinLock::ScopedLockType lock (chainLock);
+                    chainOrder = candidate;
+                }
+            }
+        }
+
         apvts.replaceState (state);
     }
 }

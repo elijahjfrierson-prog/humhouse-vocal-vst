@@ -143,12 +143,13 @@ void HumHouseVocalsEditor::ModuleStrip::resized()
 HumHouseVocalsEditor::HumHouseVocalsEditor (HumHouseVocalsProcessor& p)
     : AudioProcessorEditor (&p),
       processorRef (p),
+      chainStrip (p),
       autoTuneSection (p),
       eqCurveDisplay (p),
       mbMeterDisplay (p)
 {
     setLookAndFeel(&lnf);
-    setSize(1100, 720);
+    setSize(1100, 820);
 
     // Title
     titleLabel.setFont(juce::Font(28.0f).boldened().italicised());
@@ -160,6 +161,9 @@ HumHouseVocalsEditor::HumHouseVocalsEditor (HumHouseVocalsProcessor& p)
     subtitleLabel.setColour(juce::Label::textColourId, juce::Colour(humvocal::HumHousePalette::kMuted));
     subtitleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(subtitleLabel);
+
+    // Chain strip (draggable effect chain ordering)
+    addAndMakeVisible(chainStrip);
 
     // Pitch heatmap
     addAndMakeVisible(pitchHeatMap);
@@ -898,6 +902,134 @@ void HumHouseVocalsEditor::MBMeterDisplay::paint (juce::Graphics& g)
 }
 
 // ===========================================================================
+// ChainStrip — draggable effect chain reordering
+// ===========================================================================
+juce::Rectangle<int> HumHouseVocalsEditor::ChainStrip::getChipBounds (int slot) const
+{
+    auto bounds = getLocalBounds();
+    int numMods = HumHouseVocalsProcessor::kNumModules;
+    int chipW = bounds.getWidth() / numMods;
+    return { bounds.getX() + slot * chipW, bounds.getY(), chipW, bounds.getHeight() };
+}
+
+int HumHouseVocalsEditor::ChainStrip::slotAtPosition (int x) const
+{
+    auto bounds = getLocalBounds();
+    int numMods = HumHouseVocalsProcessor::kNumModules;
+    int chipW = bounds.getWidth() / numMods;
+    if (chipW <= 0) return -1;
+    int slot = (x - bounds.getX()) / chipW;
+    return juce::jlimit (0, numMods - 1, slot);
+}
+
+void HumHouseVocalsEditor::ChainStrip::paint (juce::Graphics& g)
+{
+    auto bounds = getLocalBounds().toFloat();
+
+    g.setColour (juce::Colour (humvocal::HumHousePalette::kInk));
+    g.fillRoundedRectangle (bounds, 4.0f);
+
+    auto order = proc.getChainOrder();
+    int numMods = HumHouseVocalsProcessor::kNumModules;
+
+    for (int slot = 0; slot < numMods; ++slot)
+    {
+        auto chip = getChipBounds (slot).toFloat().reduced (2.0f, 2.0f);
+        int moduleId = order[static_cast<size_t>(slot)];
+
+        bool isDragging = (slot == dragSlot);
+        bool isHover = (slot == hoverSlot && dragSlot < 0);
+        bool isDrop = (slot == dropTarget && dragSlot >= 0);
+
+        // Chip background
+        if (isDragging)
+            g.setColour (juce::Colour (humvocal::HumHousePalette::kAccentDeep).withAlpha (0.6f));
+        else if (isDrop)
+            g.setColour (juce::Colour (humvocal::HumHousePalette::kAccent).withAlpha (0.3f));
+        else if (isHover)
+            g.setColour (juce::Colour (humvocal::HumHousePalette::kModuleActive).brighter (0.2f));
+        else
+            g.setColour (juce::Colour (humvocal::HumHousePalette::kModuleActive));
+
+        g.fillRoundedRectangle (chip, 4.0f);
+
+        // Border
+        g.setColour (juce::Colour (humvocal::HumHousePalette::kModuleBorder));
+        g.drawRoundedRectangle (chip, 4.0f, 1.0f);
+
+        // Module name
+        g.setColour (juce::Colour (humvocal::HumHousePalette::kBone));
+        g.setFont (juce::Font (9.0f).boldened());
+        if (moduleId >= 0 && moduleId < numMods)
+            g.drawText (HumHouseVocalsProcessor::kModuleNames[moduleId],
+                        chip, juce::Justification::centred);
+
+        // Arrow between chips (except last)
+        if (slot < numMods - 1)
+        {
+            float arrowX = chip.getRight() + 1.0f;
+            float arrowY = chip.getCentreY();
+            g.setColour (juce::Colour (humvocal::HumHousePalette::kMuted));
+            g.setFont (juce::Font (8.0f));
+            g.drawText ("\u2192", static_cast<int>(arrowX - 4), static_cast<int>(arrowY - 6), 8, 12,
+                        juce::Justification::centred);
+        }
+    }
+
+    // Outer border
+    g.setColour (juce::Colour (humvocal::HumHousePalette::kModuleBorder));
+    g.drawRoundedRectangle (bounds, 4.0f, 1.0f);
+
+    // Label
+    g.setColour (juce::Colour (humvocal::HumHousePalette::kMuted));
+    g.setFont (juce::Font (8.0f).italicised());
+    g.drawText ("SIGNAL CHAIN (drag to reorder)", bounds.reduced (4, 0),
+                juce::Justification::bottomRight);
+}
+
+void HumHouseVocalsEditor::ChainStrip::mouseDown (const juce::MouseEvent& e)
+{
+    dragSlot = slotAtPosition (e.x);
+    dropTarget = -1;
+    dragOffset = e.getPosition();
+    repaint();
+}
+
+void HumHouseVocalsEditor::ChainStrip::mouseDrag (const juce::MouseEvent& e)
+{
+    if (dragSlot < 0) return;
+    int newDrop = slotAtPosition (e.x);
+    if (newDrop != dropTarget)
+    {
+        dropTarget = newDrop;
+        repaint();
+    }
+}
+
+void HumHouseVocalsEditor::ChainStrip::mouseUp (const juce::MouseEvent&)
+{
+    if (dragSlot >= 0 && dropTarget >= 0 && dragSlot != dropTarget)
+    {
+        proc.swapChainModules (dragSlot, dropTarget);
+    }
+    dragSlot = -1;
+    dropTarget = -1;
+    repaint();
+}
+
+void HumHouseVocalsEditor::ChainStrip::mouseMove (const juce::MouseEvent& e)
+{
+    int newHover = slotAtPosition (e.x);
+    if (newHover != hoverSlot)
+    {
+        hoverSlot = newHover;
+        setMouseCursor (hoverSlot >= 0 ? juce::MouseCursor::DraggingHandCursor
+                                       : juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+}
+
+// ===========================================================================
 // Timer — update pitch heatmap + visual displays
 // ===========================================================================
 void HumHouseVocalsEditor::timerCallback()
@@ -910,6 +1042,7 @@ void HumHouseVocalsEditor::timerCallback()
     autoTuneSection.repaint();
     eqCurveDisplay.repaint();
     mbMeterDisplay.repaint();
+    chainStrip.repaint();
 }
 
 // ===========================================================================
@@ -934,7 +1067,7 @@ void HumHouseVocalsEditor::paint (juce::Graphics& g)
     g.setColour(juce::Colour(humvocal::HumHousePalette::kAccentDeep));
     g.fillRect(bounds.getX() + 20.0f, 60.0f, bounds.getWidth() - 40.0f, 1.0f);
 
-    // Signal flow arrow labels
+    // Signal flow indicator (chain strip handles this now)
     g.setColour(juce::Colour(humvocal::HumHousePalette::kMuted));
     g.setFont(juce::Font(9.0f).italicised());
     g.drawText("SIGNAL FLOW \u2192", 10, 92, 100, 14, juce::Justification::centredLeft);
@@ -967,15 +1100,15 @@ void HumHouseVocalsEditor::resized()
     titleLabel.setBounds(titleArea.removeFromTop(36));
     subtitleLabel.setBounds(titleArea);
 
+    // === Chain Strip: draggable effect chain reordering ===
+    chainStrip.setBounds(area.removeFromTop(38).reduced(10, 4));
+
     // === AutoTune Section: note display + heatmap + key/scale selectors ===
     auto autoArea = area.removeFromTop(100).reduced(10, 4);
-    // Left: AutoTune note display panel
     autoTuneSection.setBounds(autoArea.removeFromLeft(220).reduced(2));
-    // Center: Key + Scale selectors stacked above the heatmap
     auto keyScaleArea = autoArea.removeFromLeft(130);
     rootNoteBox.setBounds(keyScaleArea.removeFromTop(28).reduced(4, 2));
     scaleTypeBox.setBounds(keyScaleArea.removeFromTop(28).reduced(4, 2));
-    // Rest: Pitch heatmap
     pitchHeatMap.setBounds(autoArea.reduced(4, 2));
 
     // Master controls at bottom
@@ -1009,12 +1142,8 @@ void HumHouseVocalsEditor::resized()
 
     auto row1Area = stripArea.removeFromTop(stripH);
     for (auto* strip : row1)
-    {
         strip->setBounds(row1Area.removeFromLeft(stripW).reduced(3));
-    }
 
     for (auto* strip : row2)
-    {
         strip->setBounds(stripArea.removeFromLeft(stripW).reduced(3));
-    }
 }

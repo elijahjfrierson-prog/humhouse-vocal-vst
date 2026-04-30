@@ -11,7 +11,6 @@
 #include "VocalDelay.h"
 #include "VocalDoubler.h"
 #include "VisualEQ.h"
-// FormantShifter removed — was causing static/CPU issues
 #include "MultibandCompressor.h"
 #include "NoiseGate.h"
 #include "VocalReverb.h"
@@ -20,10 +19,24 @@
 #include <JuceHeader.h>
 #include <atomic>
 #include <memory>
+#include <array>
 
 class HumHouseVocalsProcessor : public juce::AudioProcessor
 {
 public:
+    // Module IDs for the reorderable effect chain
+    enum ModuleID
+    {
+        kGate = 0, kPitch, kEQ, kComp, kMBComp, kDeEss,
+        kSat, kTape, kWidth, kDoubler, kReverb, kDelay, kLoFi, kLimiter,
+        kNumModules
+    };
+
+    static constexpr const char* kModuleNames[] = {
+        "GATE", "TUNE", "EQ", "COMP", "MB", "DE-ESS",
+        "SAT", "TAPE", "WIDTH", "DBL", "VERB", "DELAY", "LO-FI", "LIMIT"
+    };
+
     HumHouseVocalsProcessor();
     ~HumHouseVocalsProcessor() override;
 
@@ -84,16 +97,43 @@ public:
     const humvocal::VisualEQ::BandState& getEQBandState (int i) const { return visualEQ.getBandState(i); }
     static constexpr int kNumEQBands = humvocal::VisualEQ::kNumBands;
 
+    // Effect chain order — reorderable by the UI (thread-safe via SpinLock)
+    std::array<int, kNumModules> getChainOrder() const
+    {
+        juce::SpinLock::ScopedLockType lock (chainLock);
+        return chainOrder;
+    }
+    void setChainOrder (const std::array<int, kNumModules>& order)
+    {
+        juce::SpinLock::ScopedLockType lock (chainLock);
+        chainOrder = order;
+    }
+    void swapChainModules (int posA, int posB)
+    {
+        juce::SpinLock::ScopedLockType lock (chainLock);
+        if (posA >= 0 && posA < kNumModules && posB >= 0 && posB < kNumModules)
+            std::swap (chainOrder[static_cast<size_t>(posA)],
+                       chainOrder[static_cast<size_t>(posB)]);
+    }
+
 private:
     juce::AudioProcessorValueTreeState apvts;
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     void updateModuleParameters();
+    void processModule (int moduleId, juce::AudioBuffer<float>& buffer, bool inputSilent);
 
     std::unique_ptr<humvocal::PresetManager> presetManager;
     std::atomic<float> uiScale { 1.0f };
 
-    // DSP modules — signal chain order
+    // Effect chain order (default: Gate → Pitch → EQ → ... → Limiter)
+    mutable juce::SpinLock chainLock;
+    std::array<int, kNumModules> chainOrder = {
+        kGate, kPitch, kEQ, kComp, kMBComp, kDeEss,
+        kSat, kTape, kWidth, kDoubler, kReverb, kDelay, kLoFi, kLimiter
+    };
+
+    // DSP modules
     humvocal::NoiseGate         noiseGate;
     humvocal::PitchEngine       pitchEngine;
     humvocal::VisualEQ          visualEQ;
@@ -109,11 +149,10 @@ private:
     humvocal::LoFiFilter        lofiFilter;
     humvocal::OutputLimiter     limiter;
 
-    // Pre-allocated dry buffer for dry/wet mix (avoid audio-thread allocation)
+    // Pre-allocated dry buffer for dry/wet mix
     juce::AudioBuffer<float> dryBuffer;
 
-    // Dry path delay line — compensates for pitch engine latency so dry/wet
-    // mix doesn't create a comb filter
+    // Dry path delay line — compensates for pitch engine latency
     juce::AudioBuffer<float> dryDelayBuffer;
     int dryDelayWritePos = 0;
     int dryDelaySize = 0;
