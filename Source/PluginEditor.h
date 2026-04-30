@@ -53,6 +53,29 @@ private:
         juce::String moduleName;
     };
 
+    // =======================================================================
+    // ChainStrip — draggable effect chain reordering UI
+    // =======================================================================
+    class ChainStrip : public juce::Component
+    {
+    public:
+        ChainStrip (HumHouseVocalsProcessor& p) : proc (p) {}
+        void paint (juce::Graphics& g) override;
+        void mouseDown (const juce::MouseEvent& e) override;
+        void mouseDrag (const juce::MouseEvent& e) override;
+        void mouseUp (const juce::MouseEvent& e) override;
+        void mouseMove (const juce::MouseEvent& e) override;
+    private:
+        HumHouseVocalsProcessor& proc;
+        int dragSlot = -1;
+        int hoverSlot = -1;
+        int dropTarget = -1;
+        juce::Point<int> dragOffset;
+
+        juce::Rectangle<int> getChipBounds (int slot) const;
+        int slotAtPosition (int x) const;
+    };
+
     void timerCallback() override;
 
     HumHouseVocalsProcessor& processorRef;
@@ -75,9 +98,10 @@ private:
     void refreshPresetList();
     void applyUIScale (float newScale);
     static constexpr int kBaseWidth  = 1100;
-    static constexpr int kBaseHeight = 780;
+    static constexpr int kBaseHeight = 820;
 
     PitchHeatMap pitchHeatMap;
+    ChainStrip   chainStrip;
 
     // Dedicated AutoTune section — prominent pitch display with key/scale
     class AutoTuneSection : public juce::Component

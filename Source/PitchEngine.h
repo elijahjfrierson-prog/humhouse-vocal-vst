@@ -10,13 +10,15 @@ namespace humvocal
 {
 
 // ============================================================================
-// PitchEngine v5.1 — MetaTune-style processing
+// PitchEngine v6 — TD-PSOLA (formant-preserving pitch correction)
 //
 // Detection:  FFT-accelerated YIN with CMND normalization (O(N log N))
-// Shifting:   Dual crossfading read heads with ACCUMULATED position
+// Shifting:   TD-PSOLA — grains played at normal speed, spacing changes pitch
+//             Each grain is a Hann-windowed copy of one pitch period played back
+//             WITHOUT resampling. Formants are naturally preserved because the
+//             spectral content of each grain is identical to the original.
 // Stabilizer: Median-filtered pitch history + hysteresis (prevents flutter)
 // Snap:       Negative retune speed — overshoot target for aggressive snap
-// Smoothing:  juce::LinearSmoothedValue for per-sample retune speed control
 // ============================================================================
 class PitchEngine
 {
@@ -29,29 +31,28 @@ public:
     {
         sr = sampleRate;
 
-        // Pre-compute analysis Hann window
-        for (int i = 0; i < kAnalysisSize; ++i)
-            analysisWindow[static_cast<size_t>(i)] =
-                0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float>(i)
-                                         / static_cast<float>(kAnalysisSize));
-
         // FFT work buffer
         fftWork.assign (static_cast<size_t>(kFFTSize * 2), 0.0f);
 
         // Difference function buffer for YIN CMND
         yinDiff.assign (static_cast<size_t>(kAnalysisSize / 2), 0.0f);
 
-        // Reset per-channel state
+        // Reset per-channel ring buffers
         for (auto& ch : channels)
         {
             ch.ring.fill (0.0f);
             ch.writePos = kLatency;
-            ch.readPosA = 0.0;
-            ch.readPosB = 0.0;
-            ch.grainPhase = 0;
         }
 
-        grainSize = 512;
+        // Reset grain pool
+        for (auto& g : grains)
+            g.active = false;
+
+        // Reset PSOLA synthesis state
+        analysisPos = 0.0;
+        synthPhaseCounter = 0;
+        detectedPeriod = 256;
+        targetPeriod = 256;
 
         // Reset detection
         detectBuf.fill (0.0f);
@@ -61,7 +62,6 @@ public:
         lastValidDetectedHz = 0.0f;
 
         // Detection LP prefilter coefficient: cutoff ~1200Hz
-        // One-pole: coeff = 2*pi*fc / (2*pi*fc + sr)
         {
             double fc = 1200.0;
             detectLPCoeff = static_cast<float>(
@@ -102,7 +102,7 @@ public:
     void setSnapAmount (float s)              { snapAmount = s; }
     void setPitchSustain (float s)            { pitchSustain = s; }
     void setNoteStabilizer (bool on)          { stabilizer = on; }
-    void setFormantPreserve (bool /*on*/)     { /* no-op */ }
+    void setFormantPreserve (bool /*on*/)     { /* always on with PSOLA */ }
     void setBypass (bool on)                  { bypassed = on; }
 
     // --- Readback for UI ---
@@ -114,7 +114,7 @@ public:
     int getLatencySamples() const     { return kLatency; }
 
     // =======================================================================
-    //  Main process
+    //  Main process — TD-PSOLA pitch correction
     // =======================================================================
     void process (juce::AudioBuffer<float>& buffer)
     {
@@ -137,11 +137,10 @@ public:
             }
 
             // ---- Feed detection buffer from channel 0 (low-pass filtered) ----
-            // LP at ~1200Hz helps YIN focus on the fundamental, not harmonics
             float raw = buffer.getSample (0, i);
             detectLPState += detectLPCoeff * (raw - detectLPState);
             detectBuf[static_cast<size_t>(detectWritePos)] = detectLPState;
-            detectWritePos = (detectWritePos + 1) % kBufSize;
+            detectWritePos = (detectWritePos + 1) % kDetectBufSize;
 
             // ---- Periodic pitch detection ----
             ++analysisCounter;
@@ -152,9 +151,8 @@ public:
                 if (hz > 0.0f)
                 {
                     cachedDetectedHz = hz;
-                    int period = static_cast<int>(std::round (sr / static_cast<double>(hz)));
-                    period = juce::jlimit (kMinPeriod, kMaxPeriod, period);
-                    grainSize = juce::jlimit (kMinGrainSize, kMaxGrainSize, period * 2);
+                    detectedPeriod = juce::jlimit (kMinPeriod, kMaxPeriod,
+                        static_cast<int>(std::round (sr / static_cast<double>(hz))));
                 }
                 updateCorrection();
             }
@@ -162,76 +160,107 @@ public:
             // ---- Get smoothed ratio for this sample ----
             double ratio = smoothedRatio.getNextValue();
 
-            // ---- Dual-head crossfading output per channel ----
+            // ---- Compute target period from ratio ----
+            // targetPeriod = detectedPeriod / ratio (output grain spacing)
+            int curTargetPeriod = juce::jlimit (kMinPeriod, kMaxPeriod,
+                static_cast<int>(std::round (
+                    static_cast<double>(detectedPeriod) / ratio)));
+
+            // ---- Check if bypassed or ratio ~1.0 → direct passthrough ----
+            bool directPassthrough = bypassed
+                || (std::abs (ratio - 1.0) < 0.001);
+
+            if (directPassthrough)
+            {
+                // Simple ring buffer readback at fixed latency — no PSOLA
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    auto& s = channels[static_cast<size_t>(ch)];
+                    int readIdx = (s.writePos - kLatency + kBufSize) % kBufSize;
+                    buffer.setSample (ch, i,
+                        s.ring[static_cast<size_t>(readIdx)]);
+                    s.writePos = (s.writePos + 1) % kBufSize;
+                }
+                // Keep analysis position in sync
+                analysisPos = static_cast<double>(
+                    (channels[0].writePos - kLatency + kBufSize) % kBufSize);
+                synthPhaseCounter = 0;
+                // Deactivate all grains during passthrough
+                for (auto& g : grains)
+                    g.active = false;
+                continue;
+            }
+
+            // ==== TD-PSOLA synthesis ====
+
+            // ---- Check if it's time to spawn a new grain ----
+            ++synthPhaseCounter;
+            if (synthPhaseCounter >= curTargetPeriod)
+            {
+                synthPhaseCounter = 0;
+                spawnGrain (detectedPeriod);
+            }
+
+            // ---- Compute output from active grains (per channel) ----
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 auto& s = channels[static_cast<size_t>(ch)];
-                int gs = grainSize;
-                int halfGs = gs / 2;
+                float output = 0.0f;
+                float windowSum = 0.0f;
 
-                // Phase positions for the two heads (staggered by half grain)
-                int phaseA = s.grainPhase;
-                int phaseB = (s.grainPhase + halfGs) % gs;
-
-                // ---- ACCUMULATED pitch shift ----
-                // Read heads run continuously at `ratio` speed. They are only
-                // reset at Hann zero-crossings when they've drifted into the
-                // danger zone (too close to write head or reading stale data).
-                // This lets the pitch shift accumulate over time, producing the
-                // "strong hold" effect like Antares/MetaTune.
-                if (phaseA == 0)
+                for (auto& g : grains)
                 {
-                    double dist = circularDist (s.writePos, s.readPosA);
-                    if (dist < kSafeMargin || dist > static_cast<double>(kBufSize - kSafeMargin))
-                        s.readPosA = static_cast<double>((s.writePos - kLatency + kBufSize) % kBufSize);
+                    if (! g.active) continue;
+
+                    // Hann window
+                    float t = static_cast<float>(g.readOffset)
+                            / static_cast<float>(g.length);
+                    float w = 0.5f - 0.5f * std::cos (2.0f * kPi * t);
+
+                    // Read position: grain starts at startPos, reads forward
+                    double readPos = g.startPos
+                        + static_cast<double>(g.readOffset);
+                    // Wrap to buffer
+                    while (readPos >= static_cast<double>(kBufSize))
+                        readPos -= static_cast<double>(kBufSize);
+                    while (readPos < 0.0)
+                        readPos += static_cast<double>(kBufSize);
+
+                    output += linearInterp (s.ring, readPos) * w;
+                    windowSum += w;
                 }
-                if (phaseB == 0)
-                {
-                    double dist = circularDist (s.writePos, s.readPosB);
-                    if (dist < kSafeMargin || dist > static_cast<double>(kBufSize - kSafeMargin))
-                        s.readPosB = static_cast<double>((s.writePos - kLatency + kBufSize) % kBufSize);
-                }
 
-                // Hann crossfade windows (complementary: wA + wB ≈ 1.0)
-                float wA = 0.5f - 0.5f * std::cos (
-                    2.0f * kPi * static_cast<float>(phaseA) / static_cast<float>(gs));
-                float wB = 0.5f - 0.5f * std::cos (
-                    2.0f * kPi * static_cast<float>(phaseB) / static_cast<float>(gs));
+                // Normalize by window sum to maintain unity gain
+                if (windowSum > 0.01f)
+                    output /= windowSum;
 
-                // Read from both heads with cubic interpolation
-                float sA = cubicInterp (s.ring, s.readPosA);
-                float sB = cubicInterp (s.ring, s.readPosB);
-
-                // Mix via crossfade
-                float output = sA * wA + sB * wB;
                 buffer.setSample (ch, i, output);
-
-                // Advance read positions at SHIFTED rate (this IS the pitch shift)
-                s.readPosA += ratio;
-                s.readPosB += ratio;
-
-                // Wrap read positions within buffer
-                if (s.readPosA >= static_cast<double>(kBufSize))
-                    s.readPosA -= static_cast<double>(kBufSize);
-                if (s.readPosA < 0.0)
-                    s.readPosA += static_cast<double>(kBufSize);
-                if (s.readPosB >= static_cast<double>(kBufSize))
-                    s.readPosB -= static_cast<double>(kBufSize);
-                if (s.readPosB < 0.0)
-                    s.readPosB += static_cast<double>(kBufSize);
-
-                // Advance write position
                 s.writePos = (s.writePos + 1) % kBufSize;
-
-                // Advance shared grain phase (channel 0 is master)
-                if (ch == 0)
-                    s.grainPhase = (s.grainPhase + 1) % gs;
             }
 
-            // Sync grainPhase across channels
-            for (int ch = 1; ch < numChannels; ++ch)
-                channels[static_cast<size_t>(ch)].grainPhase =
-                    channels[0].grainPhase;
+            // ---- Advance all grain read offsets (shared timing) ----
+            for (auto& g : grains)
+            {
+                if (! g.active) continue;
+                ++g.readOffset;
+                if (g.readOffset >= g.length)
+                    g.active = false;
+            }
+
+            // ---- Advance analysis position ----
+            // analysisPos tracks where we're "reading from" in input time.
+            // It advances at `ratio` per output sample to maintain duration.
+            analysisPos += ratio;
+            while (analysisPos >= static_cast<double>(kBufSize))
+                analysisPos -= static_cast<double>(kBufSize);
+
+            // ---- Safety: keep analysisPos behind writePos ----
+            double gap = circularDist (channels[0].writePos, analysisPos);
+            if (gap < kSafeGap || gap > static_cast<double>(kBufSize) - kSafeGap)
+            {
+                analysisPos = static_cast<double>(
+                    (channels[0].writePos - kLatency + kBufSize) % kBufSize);
+            }
         }
     }
 
@@ -245,64 +274,74 @@ private:
     static constexpr int kAnalysisSize = kFFTSize / 2;           // 2048 samples
     static constexpr int kAnalysisHop  = 512;                    // ~10ms @ 48kHz
 
-    // Pitch shifting
+    // Ring buffer / PSOLA parameters
     static constexpr int kBufSize          = 16384;
+    static constexpr int kDetectBufSize    = 16384;
     static constexpr int kLatency          = 1024;               // Read-behind distance
     static constexpr int kMinPeriod        = 48;                 // ~1000Hz @ 48kHz
     static constexpr int kMaxPeriod        = 800;                // ~60Hz @ 48kHz
-    static constexpr int kMinGrainSize     = 96;
-    static constexpr int kMaxGrainSize     = 1600;
     static constexpr int kHistorySize      = 12;
 
+    // PSOLA grain pool
+    static constexpr int kMaxGrains        = 8;
+
+    // Safety margin for analysis position drift
+    static constexpr double kSafeGap       = 256.0;
+
     // YIN parameters
-    static constexpr float kYINThreshold   = 0.08f;             // Travis-style strict capture
-    static constexpr float kHarmonicLockThreshold = 0.85f;      // Autocorrelation strength to force-lock
+    static constexpr float kYINThreshold   = 0.08f;
+    static constexpr float kHarmonicLockThreshold = 0.85f;
 
     // Stabilizer parameters
-    static constexpr int   kStabHistSize   = 8;                  // Median filter window
-    static constexpr float kNoteEntryThreshold = 50.0f;          // Cents to enter a new note
-    static constexpr float kNoteExitThreshold  = 80.0f;          // Cents to leave (hysteresis)
-    static constexpr int   kNoteHoldMin    = 3;                  // Analysis frames before committing
-
-    // Safety margin for read head drift check (samples)
-    static constexpr double kSafeMargin = 256.0;
+    static constexpr int   kStabHistSize   = 8;
+    static constexpr float kNoteEntryThreshold = 50.0f;
+    static constexpr float kNoteExitThreshold  = 80.0f;
+    static constexpr int   kNoteHoldMin    = 3;
 
     // Overshoot for "negative speed" snap
-    static constexpr float kOvershootFactor = 1.2f;              // 20% overshoot at max speed
+    static constexpr float kOvershootFactor = 1.2f;
 
     double sr = 48000.0;
-    int grainSize = 512;
-
-    // Analysis window
-    std::array<float, kAnalysisSize> analysisWindow {};
 
     // FFT
     juce::dsp::FFT fft { kFFTOrder };
     std::vector<float> fftWork;
     std::vector<float> yinDiff;
 
-    // Detection buffer
-    std::array<float, kBufSize> detectBuf {};
+    // Detection buffer (separate from audio ring)
+    std::array<float, kDetectBufSize> detectBuf {};
     int detectWritePos = 0;
     int analysisCounter = 0;
     float cachedDetectedHz = 0.0f;
-    float lastValidDetectedHz = 0.0f;                           // For harmonic hysteresis
+    float lastValidDetectedHz = 0.0f;
 
-    // Detection low-pass prefilter (~1200Hz cutoff, one-pole)
+    // Detection low-pass prefilter
     float detectLPState = 0.0f;
-    float detectLPCoeff = 0.15f;                                 // Updated in prepare()
+    float detectLPCoeff = 0.15f;
 
-    // Per-channel state — dual crossfading read heads
+    // Per-channel ring buffers
     struct ChannelState
     {
         std::array<float, kBufSize> ring {};
         int writePos = 0;
-        double readPosA = 0.0;
-        double readPosB = 0.0;
-        int grainPhase = 0;
     };
-
     std::array<ChannelState, kMaxChannels> channels;
+
+    // ---- TD-PSOLA grain pool ----
+    struct Grain
+    {
+        double startPos = 0.0;   // start position in ring buffer
+        int readOffset  = 0;     // current read offset within grain
+        int length      = 0;     // total grain length in samples
+        bool active     = false;
+    };
+    std::array<Grain, kMaxGrains> grains {};
+
+    // PSOLA synthesis state
+    double analysisPos       = 0.0;  // current read position in input
+    int    synthPhaseCounter = 0;    // counts up to targetPeriod
+    int    detectedPeriod    = 256;  // from YIN (input period in samples)
+    int    targetPeriod      = 256;  // output period (detectedPeriod / ratio)
 
     // Smoothed pitch ratio
     juce::LinearSmoothedValue<double> smoothedRatio { 1.0 };
@@ -319,7 +358,7 @@ private:
     bool  stabilizer    = true;
     bool  bypassed      = false;
 
-    // Note stabilizer state (MetaTune-style)
+    // Note stabilizer state
     std::array<float, kStabHistSize> stabHistory {};
     int stabHistIdx = 0;
     float lockedNoteHz = 0.0f;
@@ -333,17 +372,83 @@ private:
     int histIdx = 0;
 
     // ========================================================================
+    //  Spawn a new PSOLA grain at the current analysis position
+    // ========================================================================
+    void spawnGrain (int inputPeriod)
+    {
+        // Find an inactive grain slot
+        Grain* slot = nullptr;
+        for (auto& g : grains)
+        {
+            if (! g.active)
+            {
+                slot = &g;
+                break;
+            }
+        }
+
+        if (slot == nullptr)
+        {
+            // All slots full — steal the oldest (most progressed) grain
+            int maxProgress = -1;
+            for (auto& g : grains)
+            {
+                if (g.readOffset > maxProgress)
+                {
+                    maxProgress = g.readOffset;
+                    slot = &g;
+                }
+            }
+        }
+
+        if (slot == nullptr) return;
+
+        // Grain length = 2 * inputPeriod (one period on each side of center)
+        int grainLen = juce::jlimit (kMinPeriod * 2, kMaxPeriod * 2, inputPeriod * 2);
+
+        // Grain starts one period before analysisPos
+        double start = analysisPos - static_cast<double>(inputPeriod);
+        while (start < 0.0) start += static_cast<double>(kBufSize);
+
+        slot->startPos   = start;
+        slot->readOffset = 0;
+        slot->length     = grainLen;
+        slot->active     = true;
+    }
+
+    // ========================================================================
+    //  Circular distance: how far readPos is behind writePos
+    // ========================================================================
+    double circularDist (int writeP, double readP) const
+    {
+        double d = static_cast<double>(writeP) - readP;
+        if (d < 0.0) d += static_cast<double>(kBufSize);
+        return d;
+    }
+
+    // ========================================================================
+    //  Linear interpolation from circular buffer
+    // ========================================================================
+    float linearInterp (const std::array<float, kBufSize>& buf, double pos) const
+    {
+        int i0 = static_cast<int>(pos) % kBufSize;
+        if (i0 < 0) i0 += kBufSize;
+        int i1 = (i0 + 1) % kBufSize;
+        float frac = static_cast<float>(pos - std::floor (pos));
+        return buf[static_cast<size_t>(i0)] * (1.0f - frac)
+             + buf[static_cast<size_t>(i1)] * frac;
+    }
+
+    // ========================================================================
     //  YIN pitch detection with CMND normalization (FFT-accelerated)
     // ========================================================================
     float detectPitchYIN()
     {
-        // ---- Step 1: Compute autocorrelation via FFT ----
-        // No analysis window — windowing biases the autocorrelation for YIN.
-        // Zero-padding to 2N (via kFFTSize = 2 * kAnalysisSize) prevents
-        // circular convolution artifacts.
+        // Fill FFT input from detection buffer (no analysis window — windowing
+        // biases autocorrelation for YIN; zero-padding prevents circular artifacts)
         for (int i = 0; i < kAnalysisSize; ++i)
         {
-            int idx = (detectWritePos - kAnalysisSize + i + kBufSize) % kBufSize;
+            int idx = (detectWritePos - kAnalysisSize + i + kDetectBufSize) % kDetectBufSize;
             fftWork[static_cast<size_t>(i)] = detectBuf[static_cast<size_t>(idx)];
         }
         for (int i = kAnalysisSize; i < kFFTSize * 2; ++i)
@@ -351,6 +456,7 @@ private:
 
         fft.performRealOnlyForwardTransform (fftWork.data(), true);
 
+        // Power spectrum
         for (int k = 0; k < kFFTSize; ++k)
         {
             float re = fftWork[static_cast<size_t>(2 * k)];
@@ -364,13 +470,13 @@ private:
         float acf0 = fftWork[0];
         if (acf0 <= 0.0f) return 0.0f;
 
-        // ---- Step 2: YIN difference function from autocorrelation ----
+        // YIN difference function from autocorrelation
         int halfSize = kAnalysisSize / 2;
         for (int tau = 0; tau < halfSize; ++tau)
             yinDiff[static_cast<size_t>(tau)] =
                 2.0f * acf0 - 2.0f * fftWork[static_cast<size_t>(tau)];
 
-        // ---- Step 3: Cumulative Mean Normalized Difference (CMND) ----
+        // CMND normalization
         yinDiff[0] = 1.0f;
         float runningSum = 0.0f;
         for (int tau = 1; tau < halfSize; ++tau)
@@ -383,7 +489,7 @@ private:
                 yinDiff[static_cast<size_t>(tau)] = 1.0f;
         }
 
-        // ---- Step 4: Absolute thresholding ----
+        // Absolute thresholding
         int minLag = juce::jmax (2, static_cast<int>(sr / 1000.0));
         int maxLag = juce::jmin (halfSize - 2, static_cast<int>(sr / 60.0));
 
@@ -415,18 +521,13 @@ private:
                 }
             }
             if (bestVal > 0.4f)
-            {
-                // ---- Step 6: Harmonic hysteresis ----
-                // If detection fails but last valid pitch's autocorrelation
-                // is still strong, force-lock to prevent note dropout
                 return applyHarmonicHysteresis (acf0);
-            }
         }
 
         if (tauEstimate < 1)
             return applyHarmonicHysteresis (acf0);
 
-        // ---- Step 5: Parabolic interpolation ----
+        // Parabolic interpolation
         float betterTau = static_cast<float>(tauEstimate);
         if (tauEstimate > minLag && tauEstimate < maxLag)
         {
@@ -445,22 +546,20 @@ private:
 
     // ========================================================================
     //  Harmonic hysteresis — force-lock to last valid pitch if signal weakens
-    //  but autocorrelation at that lag is still strong (prevents note dropout)
     // ========================================================================
     float applyHarmonicHysteresis (float acf0)
     {
         if (lastValidDetectedHz <= 0.0f || acf0 <= 0.0f || sr <= 0.0)
             return 0.0f;
 
-        // Check autocorrelation strength at the lag of the last valid pitch
-        int lastLag = static_cast<int>(std::round (sr / static_cast<double>(lastValidDetectedHz)));
+        int lastLag = static_cast<int>(std::round (
+            sr / static_cast<double>(lastValidDetectedHz)));
         if (lastLag < 1 || lastLag >= kAnalysisSize / 2)
             return 0.0f;
 
         float acfAtLag = fftWork[static_cast<size_t>(lastLag)];
         float normalizedStrength = acfAtLag / acf0;
 
-        // If correlation at the old pitch is still high, don't drop the note
         if (normalizedStrength > kHarmonicLockThreshold)
             return lastValidDetectedHz;
 
@@ -472,11 +571,9 @@ private:
     // ========================================================================
     float stabilizeNote (float rawHz)
     {
-        // Push into median filter history
         stabHistory[static_cast<size_t>(stabHistIdx)] = rawHz;
         stabHistIdx = (stabHistIdx + 1) % kStabHistSize;
 
-        // Compute median of recent detections
         std::array<float, kStabHistSize> sorted {};
         int validCount = 0;
         for (auto v : stabHistory)
@@ -490,8 +587,6 @@ private:
         std::sort (sorted.begin(), sorted.begin() + validCount);
         float medianHz = sorted[static_cast<size_t>(validCount / 2)];
 
-        // Hysteresis: once locked onto a note, require larger deviation to leave
-        // pitchSustain modulates how "sticky" the note lock is
         float exitThresh = kNoteExitThreshold + pitchSustain * 50.0f;
         int holdMin = static_cast<int>(kNoteHoldMin + pitchSustain * 5.0f);
 
@@ -499,20 +594,17 @@ private:
         {
             float centsDiff = 1200.0f * std::log2 (medianHz / lockedNoteHz);
 
-            // Sticky note: higher threshold to leave than to enter
             if (std::abs (centsDiff) < exitThresh)
             {
                 noteHoldCounter = 0;
-                return lockedNoteHz;  // Stay locked
+                return lockedNoteHz;
             }
 
-            // Note is changing — require hold time before committing
             ++noteHoldCounter;
             if (noteHoldCounter < holdMin)
-                return lockedNoteHz;  // Still holding old note
+                return lockedNoteHz;
         }
 
-        // Commit to new note
         lockedNoteHz = medianHz;
         noteHoldCounter = 0;
         return medianHz;
@@ -523,8 +615,6 @@ private:
     // ========================================================================
     void updateCorrection()
     {
-        // When bypassed, force ratio to 1.0 (pass-through) but still run
-        // audio through the ring buffer so latency stays consistent
         if (bypassed)
         {
             smoothedRatio.setTargetValue (1.0);
@@ -541,9 +631,7 @@ private:
 
         if (detectedHz >= 60.0f && detectedHz <= 1200.0f)
         {
-            // Apply MetaTune-style note stabilizer (median + hysteresis)
             float stableHz = stabilizer ? stabilizeNote (detectedHz) : detectedHz;
-
             float targetHz = findTargetFrequency (stableHz);
             lastTargetHz = targetHz;
 
@@ -555,8 +643,6 @@ private:
 
             if (std::abs (corrCents) > 0.5f)
             {
-                // "Negative speed" overshoot: at high retune speeds, overshoot
-                // the target by kOvershootFactor to create that aggressive snap
                 float overshoot = 1.0f;
                 if (retuneSpeed > 0.85f)
                 {
@@ -564,7 +650,8 @@ private:
                     overshoot = 1.0f + overshootBlend * (kOvershootFactor - 1.0f);
                 }
 
-                double effectiveCents = static_cast<double>(corrCents) * static_cast<double>(overshoot);
+                double effectiveCents = static_cast<double>(corrCents)
+                    * static_cast<double>(overshoot);
                 newTargetRatio = std::pow (2.0, effectiveCents / 1200.0);
             }
         }
@@ -578,12 +665,10 @@ private:
     }
 
     // ========================================================================
-    //  Update LinearSmoothValue ramp when retune speed changes
+    //  Update LinearSmoothedValue ramp when retune speed changes
     // ========================================================================
     void updateSmoothRamp()
     {
-        // Speed 0 → slow glide (400ms), Speed 1 → instant snap (< 1 sample)
-        // Squared curve makes high speeds feel "snappier"
         double inv = 1.0 - static_cast<double>(retuneSpeed);
         double rampSeconds = 0.00002 + inv * inv * 0.4;
         cachedRampSeconds = rampSeconds;
@@ -595,41 +680,6 @@ private:
             smoothedRatio.setCurrentAndTargetValue (current);
             smoothedRatio.setTargetValue (target);
         }
-    }
-
-    // ========================================================================
-    //  Circular distance: how far readPos is behind writePos in ring buffer
-    // ========================================================================
-    double circularDist (int writeP, double readP) const
-    {
-        double d = static_cast<double>(writeP) - readP;
-        if (d < 0.0) d += static_cast<double>(kBufSize);
-        return d;
-    }
-
-    // ========================================================================
-    //  Catmull-Rom cubic interpolation from circular buffer
-    // ========================================================================
-    float cubicInterp (const std::array<float, kBufSize>& buf, double pos) const
-    {
-        int   i1   = static_cast<int>(pos) % kBufSize;
-        float frac = static_cast<float>(pos - std::floor (pos));
-
-        int i0 = (i1 - 1 + kBufSize) % kBufSize;
-        int i2 = (i1 + 1) % kBufSize;
-        int i3 = (i1 + 2) % kBufSize;
-
-        float y0 = buf[static_cast<size_t>(i0)];
-        float y1 = buf[static_cast<size_t>(i1)];
-        float y2 = buf[static_cast<size_t>(i2)];
-        float y3 = buf[static_cast<size_t>(i3)];
-
-        float a0 = -0.5f * y0 + 1.5f * y1 - 1.5f * y2 + 0.5f * y3;
-        float a1 =  y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
-        float a2 = -0.5f * y0 + 0.5f * y2;
-        float a3 =  y1;
-
-        return ((a0 * frac + a1) * frac + a2) * frac + a3;
     }
 
     // ========================================================================
@@ -657,7 +707,8 @@ private:
             }
         }
 
-        return referenceFreq * std::pow (2.0f, (static_cast<float>(nearestMidi) - 69.0f) / 12.0f);
+        return referenceFreq * std::pow (2.0f,
+            (static_cast<float>(nearestMidi) - 69.0f) / 12.0f);
     }
 };
 
