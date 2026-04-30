@@ -7,6 +7,13 @@
 
 $ErrorActionPreference = "Stop"
 
+# Self-elevate if not running as admin
+$principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process powershell.exe -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    exit
+}
+
 $pluginName = "HumHouse Vocals.vst3"
 $vst3Dir    = "$env:CommonProgramFiles\VST3"
 $destDir    = Join-Path $vst3Dir $pluginName
