@@ -198,19 +198,12 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (numSamples == 0 || numChannels == 0)
         return;
 
-    // --- Silence detection: skip all processing when input is silent ---
+    // --- Silence detection: skip CPU-heavy processing when input is silent ---
     float maxRMS = 0.0f;
     for (int ch = 0; ch < numChannels; ++ch)
         maxRMS = std::max(maxRMS, buffer.getRMSLevel(ch, 0, numSamples));
 
-    if (maxRMS < 1e-6f)
-    {
-        // Still feed pitch engine ring buffer so it stays in sync
-        detectedPitchHz.store(0.0f);
-        targetPitchHz.store(0.0f);
-        correctionCents.store(0.0f);
-        return; // Nothing to process
-    }
+    const bool inputSilent = (maxRMS < 1e-6f);
 
     updateModuleParameters();
 
@@ -231,47 +224,58 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // === SIGNAL CHAIN ===
 
-    // 1. Pitch Correction (only when active)
-    if (apvts.getRawParameterValue("pitchActive")->load() > 0.5f)
-        pitchEngine.process(buffer);
+    if (!inputSilent)
+    {
+        // 1. Pitch Correction (only when active and input has audio)
+        if (apvts.getRawParameterValue("pitchActive")->load() > 0.5f)
+            pitchEngine.process(buffer);
 
-    // Update pitch feedback atomics
-    detectedPitchHz.store(pitchEngine.getDetectedPitchHz());
-    targetPitchHz.store(pitchEngine.getTargetPitchHz());
-    correctionCents.store(pitchEngine.getCorrectionCents());
+        // Update pitch feedback atomics
+        detectedPitchHz.store(pitchEngine.getDetectedPitchHz());
+        targetPitchHz.store(pitchEngine.getTargetPitchHz());
+        correctionCents.store(pitchEngine.getCorrectionCents());
 
-    // 2. Visual EQ (12-band)
-    visualEQ.process(buffer);
+        // 2. Visual EQ (12-band)
+        visualEQ.process(buffer);
 
-    // 3. Compressor
-    compressor.process(buffer);
+        // 3. Compressor
+        compressor.process(buffer);
 
-    // 4. Multiband Compressor
-    multibandComp.process(buffer);
+        // 4. Multiband Compressor
+        multibandComp.process(buffer);
 
-    // 5. De-Esser
-    deEsser.process(buffer);
+        // 5. De-Esser
+        deEsser.process(buffer);
 
-    // 6. Saturation
-    saturation.process(buffer);
+        // 6. Saturation
+        saturation.process(buffer);
 
-    // 7. Tape Emulation
-    tapeEmulation.process(buffer);
+        // 7. Tape Emulation
+        tapeEmulation.process(buffer);
 
-    // 8. Stereo Width
-    stereoWidth.process(buffer);
+        // 8. Stereo Width
+        stereoWidth.process(buffer);
 
-    // 9. Doubler
-    doubler.process(buffer);
+        // 9. Doubler
+        doubler.process(buffer);
+    }
+    else
+    {
+        detectedPitchHz.store(0.0f);
+        targetPitchHz.store(0.0f);
+        correctionCents.store(0.0f);
+    }
 
+    // Time-based effects always process (so tails decay naturally)
     // 10. Reverb
     reverb.process(buffer);
 
     // 11. Delay
     delay.process(buffer);
 
-    // 12. Lo-Fi Signal Cutoff
-    lofiFilter.process(buffer);
+    // 12. Lo-Fi Signal Cutoff (stateless, skip when silent)
+    if (!inputSilent)
+        lofiFilter.process(buffer);
 
     // 13. Output Limiter
     limiter.process(buffer);

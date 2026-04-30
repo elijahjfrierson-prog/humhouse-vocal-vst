@@ -48,6 +48,7 @@ public:
         detectedHistory.fill(0.0f);
         histIdx = 0;
         yinSkipCounter = 0;
+        cachedDetectedHz = 0.0f;
         lastDetectedHz = 0.0f;
         lastTargetHz = 0.0f;
         lastCorrectionCents = 0.0f;
