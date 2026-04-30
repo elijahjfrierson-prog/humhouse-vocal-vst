@@ -76,7 +76,12 @@ public:
     void setReferenceFrequency (float hz)     { referenceFreq = hz; }
     void setRootNote (int note)               { rootNote = note % 12; }
     void setScaleType (int type)              { scaleType = type; }
-    void setRetuneSpeed (float speed01)       { retuneSpeed = speed01; updateSmoothRamp(); }
+    void setRetuneSpeed (float speed01)
+    {
+        if (std::abs (speed01 - retuneSpeed) < 1e-6f) return;
+        retuneSpeed = speed01;
+        updateSmoothRamp();
+    }
     void setHumanize (float h)                { humanize = h; }
     void setSnapAmount (float s)              { snapAmount = s; }
     void setPitchSustain (float s)            { pitchSustain = s; }
@@ -255,6 +260,7 @@ private:
 
     // Smoothed pitch ratio (per-sample via LinearSmoothValue)
     juce::LinearSmoothedValue<double> smoothedRatio { 1.0 };
+    double cachedRampSeconds = 0.005;
 
     // Parameters
     float referenceFreq = 440.0f;
@@ -442,8 +448,16 @@ private:
         // Speed 0 → slow glide (400ms), Speed 1 → instant snap (0.3ms)
         double rampSeconds = 0.0003 + (1.0 - static_cast<double>(retuneSpeed))
                                     * (1.0 - static_cast<double>(retuneSpeed)) * 0.4;
+        cachedRampSeconds = rampSeconds;
         if (sr > 0.0)
+        {
+            // Preserve current value — don't snap to target
+            double current = smoothedRatio.getCurrentValue();
+            double target  = smoothedRatio.getTargetValue();
             smoothedRatio.reset (sr, rampSeconds);
+            smoothedRatio.setCurrentAndTargetValue (current);
+            smoothedRatio.setTargetValue (target);
+        }
     }
 
     // ========================================================================
