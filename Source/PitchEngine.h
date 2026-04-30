@@ -377,7 +377,7 @@ private:
             float y0 = fftWork[static_cast<size_t>(bestPeak.lag - 1)] * invAcf0;
             float y1 = bestPeak.val;
             float y2 = fftWork[static_cast<size_t>(bestPeak.lag + 1)] * invAcf0;
-            float denom = 2.0f * (2.0f * y1 - y2 - y0);
+            float denom = 2.0f * (y0 - 2.0f * y1 + y2);
             if (std::abs (denom) > 1e-9f)
                 betterLag += (y0 - y2) / denom;
         }
