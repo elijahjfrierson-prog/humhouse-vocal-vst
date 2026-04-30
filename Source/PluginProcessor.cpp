@@ -313,7 +313,7 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // Re-check silence after modules that produce tails (reverb, delay, pitch)
         // so downstream modules don't skip processing non-silent output
         int mod = localChain[static_cast<size_t>(slot)];
-        if (inputSilent && (mod == kReverb || mod == kDelay || mod == kDoubler))
+        if (inputSilent && (mod == kReverb || mod == kConvolver || mod == kDelay || mod == kDoubler))
         {
             float postRms = buffer.getRMSLevel(0, 0, buffer.getNumSamples());
             if (postRms > 1e-6f)
