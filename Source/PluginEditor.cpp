@@ -85,6 +85,73 @@ void HumHouseVocalsEditor::ModuleStrip::resized()
 }
 
 // ===========================================================================
+// EQ Detail Section — 12 Q knobs + 12 DYN buttons
+// ===========================================================================
+static const char* kBandFreqLabels[] = {
+    "30", "80", "160", "300", "500", "800",
+    "1.2k", "2.5k", "4k", "6k", "10k", "16k"
+};
+
+HumHouseVocalsEditor::EQDetailSection::EQDetailSection()
+{
+    for (int i = 0; i < 12; ++i)
+    {
+        qKnobs[i].setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        qKnobs[i].setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+        qKnobs[i].setPopupDisplayEnabled(true, true, this);
+        qKnobs[i].setTooltip("Band " + juce::String(i + 1) + " Q (bandwidth)");
+        addAndMakeVisible(qKnobs[i]);
+
+        qLabels[i].setText("Q", juce::dontSendNotification);
+        qLabels[i].setJustificationType(juce::Justification::centred);
+        qLabels[i].setFont(juce::Font(8.0f));
+        qLabels[i].setColour(juce::Label::textColourId, juce::Colour(humvocal::HumHousePalette::kMuted));
+        addAndMakeVisible(qLabels[i]);
+
+        dynButtons[i].setButtonText("DYN");
+        dynButtons[i].setTooltip("Dynamic EQ Band " + juce::String(i + 1));
+        addAndMakeVisible(dynButtons[i]);
+
+        bandLabels[i].setText(kBandFreqLabels[i], juce::dontSendNotification);
+        bandLabels[i].setJustificationType(juce::Justification::centred);
+        bandLabels[i].setFont(juce::Font(8.0f).boldened());
+        bandLabels[i].setColour(juce::Label::textColourId, juce::Colour(humvocal::HumHousePalette::kBone));
+        addAndMakeVisible(bandLabels[i]);
+    }
+}
+
+void HumHouseVocalsEditor::EQDetailSection::paint (juce::Graphics& g)
+{
+    auto bounds = getLocalBounds().toFloat();
+    g.setColour(juce::Colour(humvocal::HumHousePalette::kPanel));
+    g.fillRoundedRectangle(bounds, 6.0f);
+    g.setColour(juce::Colour(humvocal::HumHousePalette::kModuleBorder));
+    g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
+
+    g.setColour(juce::Colour(humvocal::HumHousePalette::kBone));
+    g.setFont(juce::Font(10.0f).boldened());
+    g.drawText("EQ BANDS", bounds.reduced(6, 2), juce::Justification::topLeft);
+}
+
+void HumHouseVocalsEditor::EQDetailSection::resized()
+{
+    auto area = getLocalBounds().reduced(4);
+    area.removeFromTop(14); // title space
+
+    int colW = area.getWidth() / 12;
+
+    for (int i = 0; i < 12; ++i)
+    {
+        auto col = area.removeFromLeft(colW);
+        bandLabels[i].setBounds(col.removeFromTop(12));
+        auto knobArea = col.removeFromTop(col.getHeight() - 28);
+        qKnobs[i].setBounds(knobArea.reduced(1));
+        qLabels[i].setBounds(col.removeFromTop(10));
+        dynButtons[i].setBounds(col.removeFromTop(16).reduced(2, 0));
+    }
+}
+
+// ===========================================================================
 // Editor
 // ===========================================================================
 HumHouseVocalsEditor::HumHouseVocalsEditor (HumHouseVocalsProcessor& p)
@@ -115,6 +182,8 @@ HumHouseVocalsEditor::HumHouseVocalsEditor (HumHouseVocalsProcessor& p)
     addAndMakeVisible(eqCurveDisplay);
     // Multiband compressor meter display
     addAndMakeVisible(mbMeterDisplay);
+    // EQ detail section (12 Q knobs + 12 DYN buttons)
+    addAndMakeVisible(eqDetailSection);
 
     // Master section
     for (auto* s : { &inputGainSlider, &outputGainSlider, &dryWetSlider })
@@ -143,9 +212,10 @@ HumHouseVocalsEditor::HumHouseVocalsEditor (HumHouseVocalsProcessor& p)
     // Force child strip re-layout (setSize may skip resized() if size unchanged)
     for (auto* strip : { &gateStrip, &eqStrip, &compStrip,
                          &mbCompStrip, &deEsserStrip, &satStrip, &tapeStrip,
-                         &widthStrip, &doublerStrip, &reverbStrip, &delayStrip,
-                         &lofiStrip, &limiterStrip })
+                         &widthStrip, &doublerStrip, &reverbStrip, &convStrip,
+                         &delayStrip, &lofiStrip, &limiterStrip })
         strip->resized();
+    eqDetailSection.resized();
 
     startTimerHz(15);
 }
@@ -297,10 +367,7 @@ void HumHouseVocalsEditor::setupModuleStrips()
     gateStrip.addKnob("RANGE", "Gate Range - Max attenuation (dB)");
     addAndMakeVisible(gateStrip);
 
-    // VISUAL EQ — 12 bands are controlled via the EQ curve display; strip just has master gain
-    eqStrip.addKnob("BAND 1", "EQ Band 1 Gain (Low - 30 Hz)");
-    eqStrip.addKnob("BAND 6", "EQ Band 6 Gain (Mid - 800 Hz)");
-    eqStrip.addKnob("BAND 12", "EQ Band 12 Gain (High - 16 kHz)");
+    // VISUAL EQ — bands controlled via EQ curve display + Q knobs in EQ Detail Section
     addAndMakeVisible(eqStrip);
 
     // COMP — Threshold, Ratio, Attack, Release, Makeup
@@ -358,6 +425,13 @@ void HumHouseVocalsEditor::setupModuleStrips()
     reverbStrip.addKnob("DUCK", "Reverb Ducking Amount");
     addAndMakeVisible(reverbStrip);
 
+    // CONVOLVER — Size, Damp, Mix, Pre-Delay (Reverse is a toggle)
+    convStrip.addKnob("SIZE", "Convolver Decay Size (seconds)");
+    convStrip.addKnob("DAMP", "Convolver Damping");
+    convStrip.addKnob("MIX", "Convolver Mix - Wet/Dry blend");
+    convStrip.addKnob("PRE", "Convolver Pre-Delay (ms)");
+    addAndMakeVisible(convStrip);
+
     // DELAY — Time, Feedback, Mix, Duck
     delayStrip.addKnob("TIME", "Delay Time (ms)");
     delayStrip.addKnob("FB", "Delay Feedback Amount");
@@ -410,11 +484,16 @@ void HumHouseVocalsEditor::attachParameters()
     attachSlider(*gateStrip.knobs[4], "gateRelease");
     attachSlider(*gateStrip.knobs[5], "gateRange");
 
-    // Visual EQ (quick access bands 1, 6, 12)
+    // Visual EQ
     attachButton(eqStrip.activeButton, "veqActive");
-    attachSlider(*eqStrip.knobs[0], "veqG1");
-    attachSlider(*eqStrip.knobs[1], "veqG6");
-    attachSlider(*eqStrip.knobs[2], "veqG12");
+
+    // EQ Detail Section: 12 Q knobs + 12 DYN buttons
+    for (int i = 0; i < 12; ++i)
+    {
+        auto si = juce::String(i + 1);
+        attachSlider(eqDetailSection.qKnobs[static_cast<size_t>(i)], "veqQ" + si);
+        attachButton(eqDetailSection.dynButtons[static_cast<size_t>(i)], "veqDyn" + si);
+    }
 
     // Compressor
     attachButton(compStrip.activeButton, "compActive");
@@ -470,6 +549,13 @@ void HumHouseVocalsEditor::attachParameters()
     attachSlider(*reverbStrip.knobs[0], "reverbShortMix");
     attachSlider(*reverbStrip.knobs[1], "reverbLongMix");
     attachSlider(*reverbStrip.knobs[2], "reverbDuck");
+
+    // Convolver
+    attachButton(convStrip.activeButton, "convActive");
+    attachSlider(*convStrip.knobs[0], "convSize");
+    attachSlider(*convStrip.knobs[1], "convDamping");
+    attachSlider(*convStrip.knobs[2], "convMix");
+    attachSlider(*convStrip.knobs[3], "convPreDelay");
 
     // Delay
     attachButton(delayStrip.activeButton, "delayActive");
@@ -964,10 +1050,13 @@ void HumHouseVocalsEditor::resized()
     dryWetLabel.setBounds(dwArea);
 
     // EQ Curve display + MB Meter display
-    auto vizArea = area.removeFromTop(140).reduced(10, 4);
+    auto vizArea = area.removeFromTop(120).reduced(10, 4);
     auto eqVizArea = vizArea.removeFromLeft(vizArea.getWidth() * 2 / 3);
     eqCurveDisplay.setBounds(eqVizArea.reduced(2));
     mbMeterDisplay.setBounds(vizArea.reduced(2));
+
+    // EQ Detail Section (12 Q knobs + 12 DYN buttons)
+    eqDetailSection.setBounds(area.removeFromTop(90).reduced(10, 2));
 
     // Module strips — 2 rows of 7
     auto stripArea = area.reduced(10, 4);
@@ -975,7 +1064,7 @@ void HumHouseVocalsEditor::resized()
     int stripW = stripArea.getWidth() / 7;
 
     ModuleStrip* row1[] = { &gateStrip, &eqStrip, &compStrip, &mbCompStrip, &deEsserStrip, &satStrip, &tapeStrip };
-    ModuleStrip* row2[] = { &widthStrip, &doublerStrip, &reverbStrip, &delayStrip, &lofiStrip, &limiterStrip };
+    ModuleStrip* row2[] = { &widthStrip, &doublerStrip, &reverbStrip, &convStrip, &delayStrip, &lofiStrip, &limiterStrip };
 
     auto row1Area = stripArea.removeFromTop(stripH);
     for (auto* strip : row1)

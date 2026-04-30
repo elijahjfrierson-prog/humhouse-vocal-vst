@@ -33,6 +33,7 @@ public:
         float    q         = 1.0f;
         EQBandType type    = EQBandType::Bell;
         bool     active    = true;
+        bool     dynamic   = false;       // dynamic EQ: gain responds to signal level
     };
 
     void prepare (double sampleRate, int blockSize)
@@ -40,8 +41,8 @@ public:
         sr = sampleRate;
         juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32>(blockSize), 2 };
         for (auto& f : filters) f.prepare(spec);
+        for (auto& f : scFilters) f.prepare(spec);
 
-        // Set default vocal-focused frequencies
         setDefaultFrequencies();
     }
 
@@ -72,6 +73,7 @@ public:
     void setBandQ    (int i, float q)   { if (i >= 0 && i < kNumBands && bands[i].q != q) { bands[i].q = q; updateCoefficients(i); } }
     void setBandType (int i, int t)     { if (i >= 0 && i < kNumBands && bands[i].type != static_cast<EQBandType>(t)) { bands[i].type = static_cast<EQBandType>(t); updateCoefficients(i); } }
     void setBandActive(int i, bool a)   { if (i >= 0 && i < kNumBands) { bands[i].active = a; } }
+    void setBandDynamic(int i, bool d)  { if (i >= 0 && i < kNumBands) { bands[i].dynamic = d; } }
 
     const BandState& getBandState (int i) const { return bands[static_cast<size_t>(juce::jlimit(0, kNumBands - 1, i))]; }
 
@@ -79,17 +81,61 @@ public:
     {
         if (!active) return;
 
+        const int numSamples = buffer.getNumSamples();
+        const int numChannels = buffer.getNumChannels();
+
         juce::dsp::AudioBlock<float> block (buffer);
         juce::dsp::ProcessContextReplacing<float> ctx (block);
 
         for (int i = 0; i < kNumBands; ++i)
         {
-            if (bands[i].active && (std::abs(bands[i].gain) > 0.01f
-                || bands[i].type == EQBandType::LowPass
-                || bands[i].type == EQBandType::HighPass
-                || bands[i].type == EQBandType::Notch))
+            bool hasGain = std::abs(bands[i].gain) > 0.01f;
+            bool isFilter = bands[i].type == EQBandType::LowPass
+                         || bands[i].type == EQBandType::HighPass
+                         || bands[i].type == EQBandType::Notch;
+
+            if (!bands[i].active || (!hasGain && !isFilter))
+                continue;
+
+            if (!bands[i].dynamic)
             {
                 filters[i].process(ctx);
+            }
+            else
+            {
+                // Dynamic EQ: detect sidechain level, scale gain proportionally
+                // 1. Run sidechain bandpass to measure energy at this frequency
+                scBuffer.setSize(numChannels, numSamples, false, false, true);
+                for (int ch = 0; ch < numChannels; ++ch)
+                    scBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+                updateScCoefficients(i);
+                juce::dsp::AudioBlock<float> scBlock(scBuffer);
+                juce::dsp::ProcessContextReplacing<float> scCtx(scBlock);
+                scFilters[i].process(scCtx);
+
+                // 2. Measure RMS of the filtered sidechain
+                float rms = 0.0f;
+                for (int ch = 0; ch < numChannels; ++ch)
+                    rms = std::max(rms, scBuffer.getRMSLevel(ch, 0, numSamples));
+                float rmsDb = juce::Decibels::gainToDecibels(rms, -80.0f);
+
+                // 3. Scale: gain is fully applied above -20dB, fades below
+                constexpr float dynThresh = -30.0f;
+                constexpr float dynRange  = 20.0f;
+                float dynScale = juce::jlimit(0.0f, 1.0f, (rmsDb - dynThresh) / dynRange);
+
+                // 4. Temporarily adjust gain and apply
+                float origGain = bands[i].gain;
+                float scaledGain = origGain * dynScale;
+                if (std::abs(scaledGain) > 0.01f || isFilter)
+                {
+                    bands[i].gain = scaledGain;
+                    updateCoefficients(i);
+                    filters[i].process(ctx);
+                    bands[i].gain = origGain;
+                    updateCoefficients(i);
+                }
             }
         }
     }
@@ -126,6 +172,8 @@ private:
     using IIRFilter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
                                                       juce::dsp::IIR::Coefficients<float>>;
     std::array<IIRFilter, kNumBands> filters;
+    std::array<IIRFilter, kNumBands> scFilters; // sidechain bandpass for dynamic EQ
+    juce::AudioBuffer<float> scBuffer;
 
     void setDefaultFrequencies()
     {
@@ -188,6 +236,16 @@ private:
         }
 
         *filters[static_cast<size_t>(index)].state = *coeffs;
+    }
+
+    void updateScCoefficients (int index)
+    {
+        if (index < 0 || index >= kNumBands) return;
+        auto& b = bands[static_cast<size_t>(index)];
+        float freq = juce::jlimit(20.0f, static_cast<float>(sr) * 0.49f, b.frequency);
+        float q    = juce::jlimit(0.1f, 30.0f, b.q);
+        auto coeffs = juce::dsp::IIR::Coefficients<float>::makeBandPass(sr, freq, q);
+        *scFilters[static_cast<size_t>(index)].state = *coeffs;
     }
 };
 

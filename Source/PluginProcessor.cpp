@@ -29,6 +29,7 @@ HumHouseVocalsProcessor::createParameterLayout()
         params.push_back (std::make_unique<juce::AudioParameterFloat> ("veqG" + si, "VEQ Gain " + si,  -24.0f, 24.0f, 0.0f));
         params.push_back (std::make_unique<juce::AudioParameterFloat> ("veqQ" + si, "VEQ Q " + si,     0.1f, 30.0f, 1.0f));
         params.push_back (std::make_unique<juce::AudioParameterInt>   ("veqT" + si, "VEQ Type " + si,  0, 5, (i == 0) ? 4 : (i == 11) ? 3 : 0)); // HP, LP, or Bell
+        params.push_back (std::make_unique<juce::AudioParameterBool>  ("veqDyn" + si, "VEQ Dynamic " + si, false));
     }
 
     // --- COMPRESSOR (single-band) ---
@@ -87,6 +88,14 @@ HumHouseVocalsProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("reverbLongMix",   "Reverb Long Mix",  0.0f, 1.0f, 0.15f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("reverbDuck",      "Reverb Duck",      0.0f, 1.0f, 0.5f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("reverbPostEQ",    "Reverb Post EQ",   2000.0f, 16000.0f, 8000.0f));
+
+    // --- CONVOLVER REVERB ---
+    params.push_back (std::make_unique<juce::AudioParameterBool>  ("convActive",    "Convolver Active",  false));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("convSize",      "Conv Size",         0.1f, 6.0f, 1.5f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("convDamping",   "Conv Damping",      0.0f, 1.0f, 0.5f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("convMix",       "Conv Mix",          0.0f, 1.0f, 0.3f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("convPreDelay",  "Conv Pre-Delay",    0.0f, 200.0f, 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterBool>  ("convReverse",   "Conv Reverse",      false));
 
     // --- DELAY ---
     params.push_back (std::make_unique<juce::AudioParameterBool>  ("delayActive",   "Delay Active",   false));
@@ -160,6 +169,7 @@ void HumHouseVocalsProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     stereoWidth.prepare(sampleRate, samplesPerBlock);
     doubler.prepare(sampleRate, samplesPerBlock);
     reverb.prepare(sampleRate, samplesPerBlock);
+    convolverReverb.prepare(sampleRate, samplesPerBlock);
     delay.prepare(sampleRate, samplesPerBlock);
     lofiFilter.prepare(sampleRate, samplesPerBlock);
     limiter.prepare(sampleRate, samplesPerBlock);
@@ -231,6 +241,10 @@ void HumHouseVocalsProcessor::processModule (int moduleId,
 
         case kReverb:
             reverb.process(buffer);
+            break;
+
+        case kConvolver:
+            convolverReverb.process(buffer);
             break;
 
         case kDelay:
@@ -364,7 +378,9 @@ void HumHouseVocalsProcessor::updateModuleParameters()
         float gain = apvts.getRawParameterValue("veqG" + si)->load();
         float q    = apvts.getRawParameterValue("veqQ" + si)->load();
         int   type = static_cast<int>(apvts.getRawParameterValue("veqT" + si)->load());
+        bool  dyn  = apvts.getRawParameterValue("veqDyn" + si)->load() > 0.5f;
         visualEQ.setBand(i, freq, gain, q, static_cast<humvocal::EQBandType>(type), true);
+        visualEQ.setBandDynamic(i, dyn);
     }
 
     // Compressor
@@ -438,6 +454,14 @@ void HumHouseVocalsProcessor::updateModuleParameters()
     reverb.setLongMix(apvts.getRawParameterValue("reverbLongMix")->load());
     reverb.setDuckAmount(apvts.getRawParameterValue("reverbDuck")->load());
     reverb.setPostEQFreq(apvts.getRawParameterValue("reverbPostEQ")->load());
+
+    // Convolver Reverb
+    convolverReverb.setActive(apvts.getRawParameterValue("convActive")->load() > 0.5f);
+    convolverReverb.setSize(apvts.getRawParameterValue("convSize")->load());
+    convolverReverb.setDamping(apvts.getRawParameterValue("convDamping")->load());
+    convolverReverb.setMix(apvts.getRawParameterValue("convMix")->load());
+    convolverReverb.setPreDelay(apvts.getRawParameterValue("convPreDelay")->load());
+    convolverReverb.setReverse(apvts.getRawParameterValue("convReverse")->load() > 0.5f);
 
     // Delay
     delay.setActive(apvts.getRawParameterValue("delayActive")->load() > 0.5f);

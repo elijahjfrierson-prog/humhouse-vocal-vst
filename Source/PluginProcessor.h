@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ConvolverReverb.h"
 #include "DeEsser.h"
 #include "LoFiFilter.h"
 #include "OutputLimiter.h"
@@ -27,13 +28,13 @@ public:
     enum ModuleID
     {
         kGate = 0, kEQ, kComp, kMBComp, kDeEss,
-        kSat, kTape, kWidth, kDoubler, kReverb, kDelay, kLoFi, kLimiter,
+        kSat, kTape, kWidth, kDoubler, kReverb, kConvolver, kDelay, kLoFi, kLimiter,
         kNumModules
     };
 
     static constexpr const char* kModuleNames[] = {
         "GATE", "EQ", "COMP", "MB", "DE-ESS",
-        "SAT", "TAPE", "WIDTH", "DBL", "VERB", "DELAY", "LO-FI", "LIMIT"
+        "SAT", "TAPE", "WIDTH", "DBL", "VERB", "CONV", "DELAY", "LO-FI", "LIMIT"
     };
 
     HumHouseVocalsProcessor();
@@ -111,7 +112,7 @@ private:
     mutable juce::SpinLock chainLock;
     std::array<int, kNumModules> chainOrder = {
         kGate, kEQ, kComp, kMBComp, kDeEss,
-        kSat, kTape, kWidth, kDoubler, kReverb, kDelay, kLoFi, kLimiter
+        kSat, kTape, kWidth, kDoubler, kReverb, kConvolver, kDelay, kLoFi, kLimiter
     };
 
     // DSP modules
@@ -125,6 +126,7 @@ private:
     humvocal::StereoWidth       stereoWidth;
     humvocal::VocalDoubler      doubler;
     humvocal::VocalReverb       reverb;
+    humvocal::ConvolverReverb   convolverReverb;
     humvocal::VocalDelay        delay;
     humvocal::LoFiFilter        lofiFilter;
     humvocal::OutputLimiter     limiter;

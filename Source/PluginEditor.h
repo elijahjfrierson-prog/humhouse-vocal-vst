@@ -126,6 +126,22 @@ private:
     EQCurveDisplay eqCurveDisplay;
     MBMeterDisplay mbMeterDisplay;
 
+    // EQ Detail Section — 12 Q knobs + 12 dynamic toggle buttons
+    class EQDetailSection : public juce::Component
+    {
+    public:
+        EQDetailSection();
+        void paint (juce::Graphics& g) override;
+        void resized() override;
+
+        std::array<juce::Slider, 12>        qKnobs;
+        std::array<juce::Label, 12>         qLabels;
+        std::array<juce::ToggleButton, 12>  dynButtons;
+        std::array<juce::Label, 12>         bandLabels;
+    };
+
+    EQDetailSection eqDetailSection;
+
     // Module strips
     ModuleStrip gateStrip     { "GATE" };
     ModuleStrip eqStrip       { "VISUAL EQ" };
@@ -137,6 +153,7 @@ private:
     ModuleStrip widthStrip    { "WIDTH" };
     ModuleStrip doublerStrip  { "DOUBLER" };
     ModuleStrip reverbStrip   { "REVERB" };
+    ModuleStrip convStrip     { "CONV" };
     ModuleStrip delayStrip    { "DELAY" };
     ModuleStrip lofiStrip     { "LO-FI" };
     ModuleStrip limiterStrip  { "LIMITER" };
