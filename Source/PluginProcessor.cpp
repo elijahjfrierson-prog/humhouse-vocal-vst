@@ -181,6 +181,9 @@ void HumHouseVocalsProcessor::prepareToPlay (double sampleRate, int samplesPerBl
 
     // Pre-allocate dry buffer
     dryBuffer.setSize(2, samplesPerBlock);
+
+    // Report pitch engine latency to DAW for timing compensation
+    setLatencySamples(pitchEngine.getLatencySamples());
 }
 
 void HumHouseVocalsProcessor::releaseResources() {}

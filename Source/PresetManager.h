@@ -764,44 +764,87 @@ private:
             set("humanize", 0.0f);
             set("snapAmount", 1.0f);
             set("pitchSustain", 0.1f);
+            set("scaleType", 1.0f);           // minor for wider jumps
             setBool("noteStabilizer", true);
 
             setBool("formantActive", true);
-            set("formantShift", 3.0f);         // slight up-shift for robot effect
+            set("formantShift", 3.0f);
             set("formantMix", 0.6f);
 
+            set("veqF1", 100.0f);
             set("veqG4", -3.0f);           // cut 300Hz mud
+            set("veqG6", 1.0f);            // low-mid clarity
             set("veqG8", 4.0f);            // aggressive presence
             set("veqG9", 2.0f);            // clarity
+            set("veqG11", 2.5f);            // air
 
-            set("compThreshold", -22.0f);
-            set("compRatio", 5.0f);
-            set("compAttack", 3.0f);
+            set("compThreshold", -24.0f);
+            set("compRatio", 6.0f);
+            set("compAttack", 2.0f);
+            set("compRelease", 40.0f);
+            set("compKnee", 3.0f);
+
+            setBool("mbActive", true);
+            set("mbThresh1", -22.0f);
+            set("mbRatio1", 5.0f);
+            set("mbThresh3", -18.0f);
+            set("mbRatio3", 3.0f);
 
             setBool("satActive", true);
-            set("satDrive", 0.2f);
+            set("satDrive", 0.25f);
             set("satMode", 0.0f);
-            set("satMix", 0.3f);
+            set("satMix", 0.35f);
+
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -16.0f);
+
+            setBool("delayActive", true);
+            set("delayTime", 200.0f);
+            set("delayFeedback", 0.2f);
+            set("delayMix", 0.12f);
+            set("delayDuck", 0.6f);
+
+            setBool("reverbActive", true);
+            set("reverbShortMix", 0.1f);
+            set("reverbLongMix", 0.06f);
+            set("reverbDuck", 0.7f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Ethereal Wide")
         {
             set("retuneSpeed", 0.4f);
             set("humanize", 0.3f);
+            set("snapAmount", 0.8f);
 
             setBool("formantActive", true);
             set("formantShift", 2.0f);         // airy up-shift
             set("formantMix", 0.35f);
 
+            set("veqF1", 80.0f);
+            set("veqG3", 1.0f);            // body warmth
+            set("veqG5", -1.5f);           // clear muddiness
             set("veqG8", 1.5f);            // presence
             set("veqG10", 2.0f);           // sparkle
-            set("veqG11", 3.0f);
+            set("veqG11", 3.5f);            // shimmer air
 
             set("compThreshold", -16.0f);
             set("compRatio", 2.5f);
+            set("compAttack", 10.0f);
+            set("compRelease", 80.0f);
             set("compKnee", 12.0f);
+
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
+            setBool("satActive", true);
+            set("satDrive", 0.1f);
+            set("satMode", 0.0f);
+            set("satMix", 0.15f);
 
             setBool("reverbActive", true);
             set("reverbShortMix", 0.25f);
+            set("reverbLongSize", 0.8f);
             set("reverbLongMix", 0.3f);
             set("reverbDuck", 0.3f);
 
@@ -818,61 +861,132 @@ private:
             set("delayTime", 500.0f);
             set("delayFeedback", 0.35f);
             set("delayMix", 0.15f);
+            set("delayDuck", 0.4f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Doubled & Thick")
         {
             set("retuneSpeed", 0.5f);
             set("humanize", 0.2f);
+            set("snapAmount", 0.85f);
+
+            set("veqF1", 80.0f);
+            set("veqG3", 1.5f);            // warmth
+            set("veqG5", -1.0f);           // clear boxiness
+            set("veqG8", 2.0f);            // presence
+            set("veqG11", 2.0f);            // air
 
             set("compThreshold", -20.0f);
             set("compRatio", 4.0f);
+            set("compAttack", 5.0f);
+            set("compRelease", 60.0f);
+            set("compKnee", 6.0f);
+
+            setBool("mbActive", true);
+            set("mbThresh2", -20.0f);
+            set("mbRatio2", 3.0f);
 
             setBool("satActive", true);
-            set("satDrive", 0.2f);
-            set("satMix", 0.3f);
+            set("satDrive", 0.25f);
+            set("satMode", 0.0f);
+            set("satMix", 0.35f);
+
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
 
             setBool("doublerActive", true);
             set("doublerMix", 0.45f);
-            set("doublerDetune", 15.0f);
-            set("doublerDelay", 25.0f);
+            set("doublerDetune", 12.0f);
+            set("doublerDelay", 22.0f);
 
             setBool("widthActive", true);
-            set("widthAmount", 1.4f);
+            set("widthAmount", 1.5f);
+            set("widthMode", 0.0f);
+
+            setBool("reverbActive", true);
+            set("reverbShortMix", 0.12f);
+            set("reverbLongMix", 0.06f);
+            set("reverbDuck", 0.6f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Reverb Wash")
         {
             set("retuneSpeed", 0.35f);
             set("humanize", 0.3f);
+            set("snapAmount", 0.75f);
 
-            set("compThreshold", -16.0f);
-            set("compRatio", 3.0f);
+            set("veqF1", 80.0f);
+            set("veqG3", 1.0f);
+            set("veqG5", -1.5f);           // clean mids before wash
+            set("veqG8", 1.5f);
+            set("veqG11", 2.5f);            // shimmer
+
+            set("compThreshold", -18.0f);
+            set("compRatio", 3.5f);
+            set("compAttack", 8.0f);
+            set("compRelease", 80.0f);
+            set("compKnee", 10.0f);
+
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
+            setBool("satActive", true);
+            set("satDrive", 0.1f);
+            set("satMode", 0.0f);
+            set("satMix", 0.2f);
 
             setBool("reverbActive", true);
             set("reverbShortMix", 0.3f);
-            set("reverbLongMix", 0.4f);       // very wet
-            set("reverbLongDamp", 0.3f);       // less damping = longer tail
+            set("reverbLongSize", 0.85f);
+            set("reverbLongMix", 0.4f);
+            set("reverbLongDamp", 0.3f);
             set("reverbDuck", 0.2f);
             set("reverbPostEQ", 10000.0f);
 
             setBool("widthActive", true);
-            set("widthAmount", 1.5f);
+            set("widthAmount", 1.6f);
+            set("widthMode", 0.0f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Slapback Echo")
         {
-            set("retuneSpeed", 0.4f);
-            set("humanize", 0.25f);
+            set("retuneSpeed", 0.5f);
+            set("humanize", 0.2f);
+            set("snapAmount", 0.85f);
+
+            set("veqF1", 100.0f);
+            set("veqG5", -1.0f);
+            set("veqG8", 2.0f);            // presence
+            set("veqG11", 2.0f);            // air
 
             set("compThreshold", -18.0f);
             set("compRatio", 3.5f);
+            set("compAttack", 5.0f);
+            set("compRelease", 50.0f);
+
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
+            setBool("satActive", true);
+            set("satDrive", 0.15f);
+            set("satMode", 0.0f);
+            set("satMix", 0.25f);
 
             setBool("delayActive", true);
-            set("delayTime", 80.0f);          // slapback (50-100ms)
-            set("delayFeedback", 0.1f);
-            set("delayMix", 0.25f);
-            set("delayDuck", 0.3f);
+            set("delayTime", 80.0f);
+            set("delayFeedback", 0.12f);
+            set("delayMix", 0.22f);
+            set("delayDuck", 0.4f);
 
             setBool("reverbActive", true);
             set("reverbShortMix", 0.12f);
+            set("reverbLongMix", 0.05f);
+            set("reverbDuck", 0.6f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Clean Vocal Chain")
         {

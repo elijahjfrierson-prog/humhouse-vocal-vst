@@ -4,22 +4,19 @@
 #include <array>
 #include <cmath>
 #include <vector>
+#include <algorithm>
 
 namespace humvocal
 {
 
 // ============================================================================
-// PitchEngine v5 — Dual-Head Crossfading Pitch Shifter + YIN CMND Detection
+// PitchEngine v5.1 — MetaTune-style processing
 //
 // Detection:  FFT-accelerated YIN with CMND normalization (O(N log N))
-//             Prevents octave errors; aggressive threshold for note capture
-// Shifting:   Two crossfading read heads with ACCUMULATED position
-//             Read heads advance at ratio speed — shift is immediate & strong
-//             Hann crossfade at grain boundaries hides discontinuities
+// Shifting:   Dual crossfading read heads with ACCUMULATED position
+// Stabilizer: Median-filtered pitch history + hysteresis (prevents flutter)
+// Snap:       Negative retune speed — overshoot target for aggressive snap
 // Smoothing:  juce::LinearSmoothedValue for per-sample retune speed control
-//
-// Reference:  Cheveigné & Kawahara (2002) "YIN, a fundamental frequency
-//             estimator for speech and music"
 // ============================================================================
 class PitchEngine
 {
@@ -61,11 +58,18 @@ public:
         detectWritePos = kAnalysisSize;
         analysisCounter = 0;
         cachedDetectedHz = 0.0f;
+        lastValidDetectedHz = 0.0f;
 
         // Reset smoothing
         smoothedRatio.reset (sr, 0.005);
         smoothedRatio.setCurrentAndTargetValue (1.0);
         updateSmoothRamp();
+
+        // Reset stabilizer state
+        stabHistory.fill (0.0f);
+        stabHistIdx = 0;
+        lockedNoteHz = 0.0f;
+        noteHoldCounter = 0;
 
         // Reset history
         detectedHistory.fill (0.0f);
@@ -96,6 +100,9 @@ public:
     float getTargetPitchHz()   const  { return lastTargetHz; }
     float getCorrectionCents()  const { return lastCorrectionCents; }
 
+    // Latency in samples — DAW should call setLatencySamples() with this
+    int getLatencySamples() const     { return kLatency; }
+
     // =======================================================================
     //  Main process
     // =======================================================================
@@ -114,7 +121,8 @@ public:
             // ---- Write input to per-channel ring buffers ----
             for (int ch = 0; ch < numChannels; ++ch)
             {
-                channels[ch].ring[static_cast<size_t>(channels[ch].writePos)] =
+                channels[static_cast<size_t>(ch)].ring[static_cast<size_t>(
+                    channels[static_cast<size_t>(ch)].writePos)] =
                     buffer.getSample (ch, i);
             }
 
@@ -144,7 +152,7 @@ public:
             // ---- Dual-head crossfading output per channel ----
             for (int ch = 0; ch < numChannels; ++ch)
             {
-                auto& s = channels[ch];
+                auto& s = channels[static_cast<size_t>(ch)];
                 int gs = grainSize;
                 int halfGs = gs / 2;
 
@@ -153,15 +161,16 @@ public:
                 int phaseB = (s.grainPhase + halfGs) % gs;
 
                 // Reset each head at its Hann zero-crossing (phase 0)
-                // This is the only place positions reset — otherwise they accumulate
                 if (phaseA == 0)
                     s.readPosA = static_cast<double>((s.writePos - kLatency + kBufSize) % kBufSize);
                 if (phaseB == 0)
                     s.readPosB = static_cast<double>((s.writePos - kLatency + kBufSize) % kBufSize);
 
                 // Hann crossfade windows (complementary: wA + wB ≈ 1.0)
-                float wA = 0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float>(phaseA) / static_cast<float>(gs));
-                float wB = 0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float>(phaseB) / static_cast<float>(gs));
+                float wA = 0.5f - 0.5f * std::cos (
+                    2.0f * kPi * static_cast<float>(phaseA) / static_cast<float>(gs));
+                float wB = 0.5f - 0.5f * std::cos (
+                    2.0f * kPi * static_cast<float>(phaseB) / static_cast<float>(gs));
 
                 // Read from both heads with cubic interpolation
                 float sA = cubicInterp (s.ring, s.readPosA);
@@ -176,22 +185,27 @@ public:
                 s.readPosB += ratio;
 
                 // Wrap read positions within buffer
-                while (s.readPosA >= static_cast<double>(kBufSize)) s.readPosA -= static_cast<double>(kBufSize);
-                while (s.readPosA < 0.0) s.readPosA += static_cast<double>(kBufSize);
-                while (s.readPosB >= static_cast<double>(kBufSize)) s.readPosB -= static_cast<double>(kBufSize);
-                while (s.readPosB < 0.0) s.readPosB += static_cast<double>(kBufSize);
+                while (s.readPosA >= static_cast<double>(kBufSize))
+                    s.readPosA -= static_cast<double>(kBufSize);
+                while (s.readPosA < 0.0)
+                    s.readPosA += static_cast<double>(kBufSize);
+                while (s.readPosB >= static_cast<double>(kBufSize))
+                    s.readPosB -= static_cast<double>(kBufSize);
+                while (s.readPosB < 0.0)
+                    s.readPosB += static_cast<double>(kBufSize);
 
                 // Advance write position
                 s.writePos = (s.writePos + 1) % kBufSize;
 
-                // Advance shared grain phase
+                // Advance shared grain phase (channel 0 is master)
                 if (ch == 0)
                     s.grainPhase = (s.grainPhase + 1) % gs;
             }
 
-            // Sync grainPhase across channels (use channel 0 as master)
+            // Sync grainPhase across channels
             for (int ch = 1; ch < numChannels; ++ch)
-                channels[ch].grainPhase = channels[0].grainPhase;
+                channels[static_cast<size_t>(ch)].grainPhase =
+                    channels[0].grainPhase;
         }
     }
 
@@ -215,7 +229,17 @@ private:
     static constexpr int kHistorySize      = 12;
 
     // YIN parameters
-    static constexpr float kYINThreshold   = 0.10f;             // Aggressive capture
+    static constexpr float kYINThreshold   = 0.08f;             // Travis-style strict capture
+    static constexpr float kHarmonicLockThreshold = 0.85f;      // Autocorrelation strength to force-lock
+
+    // Stabilizer parameters
+    static constexpr int   kStabHistSize   = 8;                  // Median filter window
+    static constexpr float kNoteEntryThreshold = 50.0f;          // Cents to enter a new note
+    static constexpr float kNoteExitThreshold  = 80.0f;          // Cents to leave (hysteresis)
+    static constexpr int   kNoteHoldMin    = 3;                  // Analysis frames before committing
+
+    // Overshoot for "negative speed" snap
+    static constexpr float kOvershootFactor = 1.2f;              // 20% overshoot at max speed
 
     double sr = 48000.0;
     int grainSize = 512;
@@ -233,6 +257,7 @@ private:
     int detectWritePos = 0;
     int analysisCounter = 0;
     float cachedDetectedHz = 0.0f;
+    float lastValidDetectedHz = 0.0f;                           // For harmonic hysteresis
 
     // Per-channel state — dual crossfading read heads
     struct ChannelState
@@ -259,6 +284,12 @@ private:
     float snapAmount    = 1.0f;
     float pitchSustain  = 0.5f;
     bool  stabilizer    = true;
+
+    // Note stabilizer state (MetaTune-style)
+    std::array<float, kStabHistSize> stabHistory {};
+    int stabHistIdx = 0;
+    float lockedNoteHz = 0.0f;
+    int noteHoldCounter = 0;
 
     // UI feedback
     float lastDetectedHz      = 0.0f;
@@ -294,31 +325,29 @@ private:
 
         fft.performRealOnlyInverseTransform (fftWork.data());
 
-        // fftWork[tau] now contains the autocorrelation r(tau)
         float acf0 = fftWork[0];
         if (acf0 <= 0.0f) return 0.0f;
 
-        // ---- Step 2: Compute YIN difference function from autocorrelation ----
-        // d(tau) = 2 * r(0) - 2 * r(tau)
-        // (Simplified since we're using a single window — energy terms cancel)
+        // ---- Step 2: YIN difference function from autocorrelation ----
         int halfSize = kAnalysisSize / 2;
         for (int tau = 0; tau < halfSize; ++tau)
-            yinDiff[static_cast<size_t>(tau)] = 2.0f * acf0 - 2.0f * fftWork[static_cast<size_t>(tau)];
+            yinDiff[static_cast<size_t>(tau)] =
+                2.0f * acf0 - 2.0f * fftWork[static_cast<size_t>(tau)];
 
         // ---- Step 3: Cumulative Mean Normalized Difference (CMND) ----
-        // d'(0) = 1, d'(tau) = d(tau) / ((1/tau) * sum(d(j), j=1..tau))
         yinDiff[0] = 1.0f;
         float runningSum = 0.0f;
         for (int tau = 1; tau < halfSize; ++tau)
         {
             runningSum += yinDiff[static_cast<size_t>(tau)];
             if (runningSum > 0.0f)
-                yinDiff[static_cast<size_t>(tau)] *= static_cast<float>(tau) / runningSum;
+                yinDiff[static_cast<size_t>(tau)] *=
+                    static_cast<float>(tau) / runningSum;
             else
                 yinDiff[static_cast<size_t>(tau)] = 1.0f;
         }
 
-        // ---- Step 4: Absolute thresholding — find first dip below threshold ----
+        // ---- Step 4: Absolute thresholding ----
         int minLag = juce::jmax (2, static_cast<int>(sr / 1000.0));
         int maxLag = juce::jmin (halfSize - 2, static_cast<int>(sr / 60.0));
 
@@ -327,9 +356,9 @@ private:
         {
             if (yinDiff[static_cast<size_t>(tau)] < kYINThreshold)
             {
-                // Walk to the local minimum
                 while (tau + 1 <= maxLag
-                       && yinDiff[static_cast<size_t>(tau + 1)] < yinDiff[static_cast<size_t>(tau)])
+                       && yinDiff[static_cast<size_t>(tau + 1)]
+                              < yinDiff[static_cast<size_t>(tau)])
                     ++tau;
 
                 tauEstimate = tau;
@@ -337,7 +366,7 @@ private:
             }
         }
 
-        // Fallback: if no dip below threshold, find the global minimum
+        // Fallback: global minimum
         if (tauEstimate < 0)
         {
             float bestVal = 1.0f;
@@ -349,26 +378,101 @@ private:
                     tauEstimate = tau;
                 }
             }
-            // Only accept if reasonably good
             if (bestVal > 0.4f)
-                return 0.0f;
+            {
+                // ---- Step 6: Harmonic hysteresis ----
+                // If detection fails but last valid pitch's autocorrelation
+                // is still strong, force-lock to prevent note dropout
+                return applyHarmonicHysteresis (acf0);
+            }
         }
 
-        if (tauEstimate < 1) return 0.0f;
+        if (tauEstimate < 1)
+            return applyHarmonicHysteresis (acf0);
 
-        // ---- Step 5: Parabolic interpolation for sub-sample accuracy ----
+        // ---- Step 5: Parabolic interpolation ----
         float betterTau = static_cast<float>(tauEstimate);
         if (tauEstimate > minLag && tauEstimate < maxLag)
         {
             float s0 = yinDiff[static_cast<size_t>(tauEstimate - 1)];
             float s1 = yinDiff[static_cast<size_t>(tauEstimate)];
             float s2 = yinDiff[static_cast<size_t>(tauEstimate + 1)];
-            float denom = 2.0f * (2.0f * s1 - s2 - s0);
+            float denom = 2.0f * (s0 - 2.0f * s1 + s2);
             if (std::abs (denom) > 1e-9f)
                 betterTau += (s0 - s2) / denom;
         }
 
-        return static_cast<float>(sr) / betterTau;
+        float resultHz = static_cast<float>(sr) / betterTau;
+        lastValidDetectedHz = resultHz;
+        return resultHz;
+    }
+
+    // ========================================================================
+    //  Harmonic hysteresis — force-lock to last valid pitch if signal weakens
+    //  but autocorrelation at that lag is still strong (prevents note dropout)
+    // ========================================================================
+    float applyHarmonicHysteresis (float acf0)
+    {
+        if (lastValidDetectedHz <= 0.0f || acf0 <= 0.0f || sr <= 0.0)
+            return 0.0f;
+
+        // Check autocorrelation strength at the lag of the last valid pitch
+        int lastLag = static_cast<int>(std::round (sr / static_cast<double>(lastValidDetectedHz)));
+        if (lastLag < 1 || lastLag >= kAnalysisSize / 2)
+            return 0.0f;
+
+        float acfAtLag = fftWork[static_cast<size_t>(lastLag)];
+        float normalizedStrength = acfAtLag / acf0;
+
+        // If correlation at the old pitch is still high, don't drop the note
+        if (normalizedStrength > kHarmonicLockThreshold)
+            return lastValidDetectedHz;
+
+        return 0.0f;
+    }
+
+    // ========================================================================
+    //  MetaTune-style note stabilizer — median filter + hysteresis
+    // ========================================================================
+    float stabilizeNote (float rawHz)
+    {
+        // Push into median filter history
+        stabHistory[static_cast<size_t>(stabHistIdx)] = rawHz;
+        stabHistIdx = (stabHistIdx + 1) % kStabHistSize;
+
+        // Compute median of recent detections
+        std::array<float, kStabHistSize> sorted {};
+        int validCount = 0;
+        for (auto v : stabHistory)
+        {
+            if (v > 0.0f)
+                sorted[static_cast<size_t>(validCount++)] = v;
+        }
+
+        if (validCount == 0) return rawHz;
+
+        std::sort (sorted.begin(), sorted.begin() + validCount);
+        float medianHz = sorted[static_cast<size_t>(validCount / 2)];
+
+        // Hysteresis: once locked onto a note, require larger deviation to leave
+        if (lockedNoteHz > 0.0f)
+        {
+            float centsDiff = 1200.0f * std::log2 (medianHz / lockedNoteHz);
+
+            // Sticky note: higher threshold to leave than to enter
+            if (std::abs (centsDiff) < kNoteExitThreshold)
+                return lockedNoteHz;  // Stay locked
+
+            // Note is changing — require hold time before committing
+            ++noteHoldCounter;
+            if (noteHoldCounter < kNoteHoldMin)
+                return lockedNoteHz;  // Still holding old note
+        }
+
+        // Commit to new note
+        lockedNoteHz = medianHz;
+        noteHoldCounter = 0;
+        return medianHz;
     }
 
     // ========================================================================
@@ -383,27 +487,8 @@ private:
 
         if (detectedHz >= 60.0f && detectedHz <= 1200.0f)
         {
-            float stableHz = detectedHz;
-
-            if (stabilizer)
-            {
-                detectedHistory[static_cast<size_t>(histIdx)] = detectedHz;
-                histIdx = (histIdx + 1) % kHistorySize;
-
-                float avg = 0.0f;
-                int count = 0;
-                for (auto v : detectedHistory)
-                    if (v > 0.0f) { avg += v; ++count; }
-
-                if (count > 0)
-                {
-                    avg /= static_cast<float>(count);
-                    float centsDiff = 1200.0f * std::log2 (detectedHz / avg);
-                    float lockZone = 30.0f + pitchSustain * 50.0f;
-                    if (std::abs (centsDiff) < lockZone)
-                        stableHz = avg;
-                }
-            }
+            // Apply MetaTune-style note stabilizer (median + hysteresis)
+            float stableHz = stabilizer ? stabilizeNote (detectedHz) : detectedHz;
 
             float targetHz = findTargetFrequency (stableHz);
             lastTargetHz = targetHz;
@@ -415,7 +500,19 @@ private:
             corrCents *= snapAmount;
 
             if (std::abs (corrCents) > 0.5f)
-                newTargetRatio = std::pow (2.0, static_cast<double>(corrCents) / 1200.0);
+            {
+                // "Negative speed" overshoot: at high retune speeds, overshoot
+                // the target by kOvershootFactor to create that aggressive snap
+                float overshoot = 1.0f;
+                if (retuneSpeed > 0.85f)
+                {
+                    float overshootBlend = (retuneSpeed - 0.85f) / 0.15f;
+                    overshoot = 1.0f + overshootBlend * (kOvershootFactor - 1.0f);
+                }
+
+                double effectiveCents = static_cast<double>(corrCents) * static_cast<double>(overshoot);
+                newTargetRatio = std::pow (2.0, effectiveCents / 1200.0);
+            }
         }
         else
         {
