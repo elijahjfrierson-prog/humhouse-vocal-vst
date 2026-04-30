@@ -112,6 +112,12 @@ private:
     // Pre-allocated dry buffer for dry/wet mix (avoid audio-thread allocation)
     juce::AudioBuffer<float> dryBuffer;
 
+    // Dry path delay line — compensates for pitch engine latency so dry/wet
+    // mix doesn't create a comb filter
+    juce::AudioBuffer<float> dryDelayBuffer;
+    int dryDelayWritePos = 0;
+    int dryDelaySize = 0;
+
     // Atomic pitch feedback
     std::atomic<float> detectedPitchHz { 0.0f };
     std::atomic<float> targetPitchHz   { 0.0f };

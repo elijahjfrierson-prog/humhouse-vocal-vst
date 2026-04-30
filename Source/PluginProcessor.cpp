@@ -68,7 +68,7 @@ HumHouseVocalsProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserThresh", "De-Esser Thresh",  -40.0f, 0.0f, -20.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserReduce", "De-Esser Reduce",  -24.0f, 0.0f, -12.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserBW",     "De-Esser BW",      0.5f, 6.0f, 2.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserMode",   "De-Esser Mode",    0.0f, 1.0f, 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterInt>   ("deEsserMode",   "De-Esser Mode",    0, 1, 0));
     params.push_back (std::make_unique<juce::AudioParameterBool>  ("deEsserListen", "De-Esser Listen",  false));
 
     // --- SATURATION ---
@@ -185,8 +185,15 @@ void HumHouseVocalsProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     // Pre-allocate dry buffer
     dryBuffer.setSize(2, samplesPerBlock);
 
+    // Pre-allocate dry delay line to match pitch engine latency
+    // This prevents comb filtering in the dry/wet mix
+    dryDelaySize = pitchEngine.getLatencySamples();
+    dryDelayBuffer.setSize(2, dryDelaySize);
+    dryDelayBuffer.clear();
+    dryDelayWritePos = 0;
+
     // Report pitch engine latency to DAW for timing compensation
-    setLatencySamples(pitchEngine.getLatencySamples());
+    setLatencySamples(dryDelaySize);
 }
 
 void HumHouseVocalsProcessor::releaseResources() {}
@@ -226,42 +233,56 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     updateModuleParameters();
 
-    // Save dry signal for dry/wet mix (use pre-allocated buffer)
-    float dryWet = apvts.getRawParameterValue("dryWet")->load();
-    bool needDry = (dryWet < 0.99f);
-    if (needDry)
-    {
-        dryBuffer.setSize(numChannels, numSamples, false, false, true);
-        for (int ch = 0; ch < numChannels; ++ch)
-            dryBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
-    }
-
     // Input gain
     float inputGain = juce::Decibels::decibelsToGain(apvts.getRawParameterValue("inputGain")->load());
     if (std::abs(inputGain - 1.0f) > 0.001f)
         buffer.applyGain(inputGain);
 
+    // Save dry signal for dry/wet mix — delayed to match pitch engine latency
+    // so we don't create a comb filter when mixing dry + wet
+    float dryWet = apvts.getRawParameterValue("dryWet")->load();
+    bool needDry = (dryWet < 0.99f);
+    if (needDry)
+    {
+        dryBuffer.setSize(numChannels, numSamples, false, false, true);
+        // Write input into delay line and read delayed output into dryBuffer
+        // Both channels share the same write position (interleaved advance)
+        int wp = dryDelayWritePos;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                float* delayData = dryDelayBuffer.getWritePointer(ch);
+                dryBuffer.setSample(ch, i, delayData[wp]);
+                delayData[wp] = buffer.getSample(ch, i);
+            }
+            wp = (wp + 1) % dryDelaySize;
+        }
+        dryDelayWritePos = wp;
+    }
+
     // === SIGNAL CHAIN ===
+
+    // 0. Noise Gate (first in chain — removes noise before processing)
+    if (!inputSilent)
+        noiseGate.process(buffer);
+
+    // 1. Pitch Correction — ALWAYS route through for consistent latency
+    //    Even during silence, the ring buffer must advance so DAW timing
+    //    compensation stays aligned and no stale data glitches on resume
+    {
+        bool pitchOn = apvts.getRawParameterValue("pitchActive")->load() > 0.5f;
+        pitchEngine.setBypass(!pitchOn);
+        pitchEngine.process(buffer);
+    }
+
+    // Update pitch feedback atomics
+    detectedPitchHz.store(pitchEngine.getDetectedPitchHz());
+    targetPitchHz.store(pitchEngine.getTargetPitchHz());
+    correctionCents.store(pitchEngine.getCorrectionCents());
 
     if (!inputSilent)
     {
-        // 0. Noise Gate (first in chain — removes noise before processing)
-        noiseGate.process(buffer);
-
-        // 1. Pitch Correction — always route through for consistent latency
-        //    When inactive, engine passes audio through its ring buffer (ratio=1.0)
-        //    so DAW latency compensation stays aligned
-        {
-            bool pitchOn = apvts.getRawParameterValue("pitchActive")->load() > 0.5f;
-            pitchEngine.setBypass(!pitchOn);
-            pitchEngine.process(buffer);
-        }
-
-        // Update pitch feedback atomics
-        detectedPitchHz.store(pitchEngine.getDetectedPitchHz());
-        targetPitchHz.store(pitchEngine.getTargetPitchHz());
-        correctionCents.store(pitchEngine.getCorrectionCents());
-
         // 2. Visual EQ (12-band)
         visualEQ.process(buffer);
 
@@ -285,12 +306,6 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         // 9. Doubler
         doubler.process(buffer);
-    }
-    else
-    {
-        detectedPitchHz.store(0.0f);
-        targetPitchHz.store(0.0f);
-        correctionCents.store(0.0f);
     }
 
     // Time-based effects always process (so tails decay naturally)
