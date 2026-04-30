@@ -119,24 +119,48 @@ public:
         g.fillEllipse(centreX - 4.0f, centreY - 4.0f, 8.0f, 8.0f);
     }
 
-    // Toggle button (module on/off)
+    // Toggle button (module on/off) — LED power-button style
     void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
                            bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override
     {
-        juce::ignoreUnused(shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+        juce::ignoreUnused(shouldDrawButtonAsDown);
 
         auto bounds = button.getLocalBounds().toFloat().reduced(2.0f);
         auto isOn = button.getToggleState();
 
+        // Background pill
         g.setColour(isOn ? juce::Colour(HumHousePalette::kAccentDeep) : juce::Colour(HumHousePalette::kPanel));
         g.fillRoundedRectangle(bounds, 4.0f);
 
-        g.setColour(isOn ? juce::Colour(HumHousePalette::kAccent) : juce::Colour(HumHousePalette::kPanelEdge));
+        // Border — brighter when hovered
+        auto borderCol = isOn ? juce::Colour(HumHousePalette::kAccent) : juce::Colour(HumHousePalette::kPanelEdge);
+        if (shouldDrawButtonAsHighlighted)
+            borderCol = borderCol.brighter(0.3f);
+        g.setColour(borderCol);
         g.drawRoundedRectangle(bounds, 4.0f, 1.5f);
 
+        // LED dot (left side)
+        float ledR = juce::jmin(bounds.getHeight() * 0.22f, 5.0f);
+        float ledX = bounds.getX() + 8.0f;
+        float ledY = bounds.getCentreY();
+        if (isOn)
+        {
+            // Glow
+            g.setColour(juce::Colour(HumHousePalette::kAccent).withAlpha(0.35f));
+            g.fillEllipse(ledX - ledR * 2.0f, ledY - ledR * 2.0f, ledR * 4.0f, ledR * 4.0f);
+            g.setColour(juce::Colour(HumHousePalette::kAccent));
+        }
+        else
+        {
+            g.setColour(juce::Colour(HumHousePalette::kMuted).withAlpha(0.5f));
+        }
+        g.fillEllipse(ledX - ledR, ledY - ledR, ledR * 2.0f, ledR * 2.0f);
+
+        // Module name text (offset right of LED)
         g.setColour(isOn ? juce::Colour(HumHousePalette::kBone) : juce::Colour(HumHousePalette::kMuted));
-        g.setFont(juce::Font(bounds.getHeight() * 0.45f).italicised());
-        g.drawText(button.getButtonText(), bounds, juce::Justification::centred);
+        g.setFont(juce::Font(bounds.getHeight() * 0.42f).boldened());
+        auto textArea = bounds.withLeft(ledX + ledR + 4.0f);
+        g.drawText(button.getButtonText(), textArea, juce::Justification::centredLeft);
     }
 
     // Italic font for labels
