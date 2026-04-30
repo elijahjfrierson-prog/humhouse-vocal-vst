@@ -104,7 +104,11 @@ jobs:
         shell: pwsh
         run: |
           $vst3 = "build\HumHouseVocals_artefacts\Release\VST3\HumHouse Vocals.vst3"
-          Compress-Archive -Path $vst3 -DestinationPath "artifacts\HumHouse-Vocals-VST3-Windows-x64.zip"
+          $stageDir = "HumHouse-Vocals-VST3"
+          New-Item -ItemType Directory -Force -Path $stageDir
+          Copy-Item -Recurse -Force $vst3 "$stageDir\"
+          Copy-Item "installer\install.ps1" "$stageDir\"
+          Compress-Archive -Path $stageDir -DestinationPath "artifacts\HumHouse-Vocals-VST3-Windows-x64.zip"
 
       - name: Upload Windows artifacts
         if: runner.os == 'Windows'
