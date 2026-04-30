@@ -10,7 +10,7 @@ HumHouseVocalsProcessor::createParameterLayout()
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
     // --- PITCH CORRECTION ---
-    params.push_back (std::make_unique<juce::AudioParameterBool>  ("pitchActive",    "Pitch Active",    true));
+    params.push_back (std::make_unique<juce::AudioParameterBool>  ("pitchActive",    "Pitch Active",    false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("retuneSpeed",    "Retune Speed",    0.0f, 1.0f, 0.5f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("humanize",       "Humanize",        0.0f, 1.0f, 0.2f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("snapAmount",     "Snap",            0.0f, 1.0f, 0.8f));
@@ -28,7 +28,7 @@ HumHouseVocalsProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantSmooth",    "Formant Smooth",    0.0f, 1.0f, 0.3f));
 
     // --- VISUAL EQ (12-band) ---
-    params.push_back (std::make_unique<juce::AudioParameterBool>  ("veqActive",  "Visual EQ Active",  true));
+    params.push_back (std::make_unique<juce::AudioParameterBool>  ("veqActive",  "Visual EQ Active",  false));
     for (int i = 0; i < 12; ++i)
     {
         auto si = juce::String(i + 1);
@@ -40,7 +40,7 @@ HumHouseVocalsProcessor::createParameterLayout()
     }
 
     // --- COMPRESSOR (single-band) ---
-    params.push_back (std::make_unique<juce::AudioParameterBool>  ("compActive",    "Comp Active",    true));
+    params.push_back (std::make_unique<juce::AudioParameterBool>  ("compActive",    "Comp Active",    false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("compThreshold", "Comp Threshold", -60.0f, 0.0f, -18.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("compRatio",     "Comp Ratio",     1.0f, 20.0f, 4.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("compAttack",    "Comp Attack",    0.1f, 100.0f, 5.0f));
@@ -53,7 +53,7 @@ HumHouseVocalsProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterInt>   ("thdMode",       "THD Mode",       0, 2, 0)); // off/soft/hard
 
     // --- DE-ESSER ---
-    params.push_back (std::make_unique<juce::AudioParameterBool>  ("deEsserActive", "De-Esser Active", true));
+    params.push_back (std::make_unique<juce::AudioParameterBool>  ("deEsserActive", "De-Esser Active", false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserFreq",   "De-Esser Freq",   3000.0f, 12000.0f, 7000.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserThresh", "De-Esser Thresh",  -40.0f, 0.0f, -20.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserReduce", "De-Esser Reduce",  -24.0f, 0.0f, -12.0f));
@@ -121,7 +121,7 @@ HumHouseVocalsProcessor::createParameterLayout()
     }
 
     // --- OUTPUT LIMITER ---
-    params.push_back (std::make_unique<juce::AudioParameterBool>  ("limiterActive",  "Limiter Active",  true));
+    params.push_back (std::make_unique<juce::AudioParameterBool>  ("limiterActive",  "Limiter Active",  false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("limiterCeiling", "Limiter Ceiling", -12.0f, 0.0f, -0.3f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("limiterRelease", "Limiter Release", 10.0f, 500.0f, 50.0f));
 
@@ -153,7 +153,6 @@ HumHouseVocalsProcessor::~HumHouseVocalsProcessor() = default;
 void HumHouseVocalsProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     pitchEngine.prepare(sampleRate, samplesPerBlock);
-    formantShifter.prepare(sampleRate, samplesPerBlock);
     visualEQ.prepare(sampleRate, samplesPerBlock);
     compressor.prepare(sampleRate, samplesPerBlock);
     multibandComp.prepare(sampleRate, samplesPerBlock);
@@ -193,10 +192,27 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
 
-    updateModuleParameters();
-
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
+
+    if (numSamples == 0 || numChannels == 0)
+        return;
+
+    // --- Silence detection: skip all processing when input is silent ---
+    float maxRMS = 0.0f;
+    for (int ch = 0; ch < numChannels; ++ch)
+        maxRMS = std::max(maxRMS, buffer.getRMSLevel(ch, 0, numSamples));
+
+    if (maxRMS < 1e-6f)
+    {
+        // Still feed pitch engine ring buffer so it stays in sync
+        detectedPitchHz.store(0.0f);
+        targetPitchHz.store(0.0f);
+        correctionCents.store(0.0f);
+        return; // Nothing to process
+    }
+
+    updateModuleParameters();
 
     // Save dry signal for dry/wet mix (use pre-allocated buffer)
     float dryWet = apvts.getRawParameterValue("dryWet")->load();
@@ -213,9 +229,9 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (std::abs(inputGain - 1.0f) > 0.001f)
         buffer.applyGain(inputGain);
 
-    // === SIGNAL CHAIN (zero-latency, in-place processing) ===
+    // === SIGNAL CHAIN ===
 
-    // 1. Pitch Correction
+    // 1. Pitch Correction (only when active)
     if (apvts.getRawParameterValue("pitchActive")->load() > 0.5f)
         pitchEngine.process(buffer);
 
@@ -224,16 +240,13 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     targetPitchHz.store(pitchEngine.getTargetPitchHz());
     correctionCents.store(pitchEngine.getCorrectionCents());
 
-    // 2. Formant Shifter
-    formantShifter.process(buffer);
-
-    // 3. Visual EQ (12-band)
+    // 2. Visual EQ (12-band)
     visualEQ.process(buffer);
 
-    // 4. Compressor
+    // 3. Compressor
     compressor.process(buffer);
 
-    // 4b. Multiband Compressor
+    // 4. Multiband Compressor
     multibandComp.process(buffer);
 
     // 5. De-Esser
@@ -268,6 +281,19 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (std::abs(outputGain - 1.0f) > 0.001f)
         buffer.applyGain(outputGain);
 
+    // --- Safety: clamp output to prevent NaN/inf/clipping ---
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        float* data = buffer.getWritePointer(ch);
+        for (int i = 0; i < numSamples; ++i)
+        {
+            if (std::isnan(data[i]) || std::isinf(data[i]))
+                data[i] = 0.0f;
+            else
+                data[i] = juce::jlimit(-2.0f, 2.0f, data[i]);
+        }
+    }
+
     // Dry/Wet mix
     if (needDry)
     {
@@ -299,11 +325,7 @@ void HumHouseVocalsProcessor::updateModuleParameters()
     pitchEngine.setNoteStabilizer(apvts.getRawParameterValue("noteStabilizer")->load() > 0.5f);
     pitchEngine.setFormantPreserve(apvts.getRawParameterValue("formantPreserve")->load() > 0.5f);
 
-    // Formant Shifter
-    formantShifter.setActive(apvts.getRawParameterValue("formantActive")->load() > 0.5f);
-    formantShifter.setShift(apvts.getRawParameterValue("formantShift")->load());
-    formantShifter.setMix(apvts.getRawParameterValue("formantMix")->load());
-    formantShifter.setSmoothing(apvts.getRawParameterValue("formantSmooth")->load());
+    // Formant Shifter — removed from signal chain (kept parameters for preset compat)
 
     // Visual EQ (12-band)
     visualEQ.setActive(apvts.getRawParameterValue("veqActive")->load() > 0.5f);

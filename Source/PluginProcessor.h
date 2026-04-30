@@ -11,7 +11,7 @@
 #include "VocalDelay.h"
 #include "VocalDoubler.h"
 #include "VisualEQ.h"
-#include "FormantShifter.h"
+// FormantShifter removed — was causing static/CPU issues
 #include "MultibandCompressor.h"
 #include "VocalReverb.h"
 #include "PresetManager.h"
@@ -94,7 +94,6 @@ private:
 
     // DSP modules — signal chain order
     humvocal::PitchEngine       pitchEngine;
-    humvocal::FormantShifter    formantShifter;
     humvocal::VisualEQ          visualEQ;
     humvocal::VocalCompressor   compressor;
     humvocal::MultibandCompressor multibandComp;

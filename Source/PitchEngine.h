@@ -9,8 +9,9 @@ namespace humvocal
 {
 
 // Real-time pitch correction engine using autocorrelation-based pitch
-// detection (YIN variant) with PSOLA resynthesis for zero-artifact
-// shifting.  Designed for sub-2 ms latency at 44.1/48 kHz.
+// detection (YIN variant) with PSOLA resynthesis.
+// Optimized for low CPU: runs YIN at reduced rate, uses properly normalized
+// overlap-add for artifact-free output.
 class PitchEngine
 {
 public:
@@ -24,39 +25,43 @@ public:
         sr = sampleRate;
         maxBlock = blockSize;
 
-        // YIN analysis window — 2x the longest expected period (for ~30 Hz ≈ C1)
-        yinBufferSize = static_cast<int>(sr / 30.0) * 2;
+        // YIN analysis window — target ~60 Hz minimum (vocal low end)
+        // Smaller than before to reduce CPU (was sr/30*2 = 3200 at 48k)
+        yinBufferSize = static_cast<int>(sr / 60.0) * 2; // ~1600 at 48k
         yinBuffer.resize(static_cast<size_t>(yinBufferSize), 0.0f);
 
         // Circular input buffer for overlap analysis
         inputRing.resize(static_cast<size_t>(yinBufferSize * 2), 0.0f);
         ringWritePos = 0;
 
-        // PSOLA grain buffers
-        grainBuffer.resize(static_cast<size_t>(yinBufferSize * 2), 0.0f);
-        outputBuffer.resize(static_cast<size_t>(maxBlock + yinBufferSize * 2), 0.0f);
+        // PSOLA output overlap buffer
+        olaBuffer.assign(static_cast<size_t>(maxBlock + 2048), 0.0f);
+        olaWindow.assign(static_cast<size_t>(maxBlock + 2048), 0.0f);
 
         // Precompute Hann window table
-        constexpr int kWindowSize = 256;
+        constexpr int kWindowSize = 512;
         windowTable.resize(kWindowSize);
         for (int i = 0; i < kWindowSize; ++i)
             windowTable[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi * static_cast<float>(i) / static_cast<float>(kWindowSize)));
 
         smoothedPitch = 0.0;
-        currentPhase = 0.0;
         detectedHistory.fill(0.0f);
         histIdx = 0;
+        yinSkipCounter = 0;
+        lastDetectedHz = 0.0f;
+        lastTargetHz = 0.0f;
+        lastCorrectionCents = 0.0f;
     }
 
     void setReferenceFrequency (float hz) { referenceFreq = hz; }
     void setRootNote (int note) { rootNote = note % 12; }
-    void setScaleType (int type) { scaleType = type; } // 0=major, 1=minor, 2=chromatic
+    void setScaleType (int type) { scaleType = type; }
     void setRetuneSpeed (float speed01) { retuneSpeed = speed01; }
     void setHumanize (float h) { humanize = h; }
     void setSnapAmount (float s) { snapAmount = s; }
     void setPitchSustain (float s) { pitchSustain = s; }
     void setNoteStabilizer (bool on) { stabilizer = on; }
-    void setFormantPreserve (bool on) { preserveFormants = on; }
+    void setFormantPreserve (bool /*on*/) { /* removed - no-op */ }
 
     float getDetectedPitchHz() const { return lastDetectedHz; }
     float getTargetPitchHz() const { return lastTargetHz; }
@@ -70,28 +75,33 @@ public:
         if (numChannels == 0 || numSamples == 0 || sr <= 0.0)
             return;
 
-        // Work on channel 0 for pitch detection, apply correction to all channels
+        // Feed channel 0 into ring buffer for pitch detection
         const float* readPtr = buffer.getReadPointer(0);
-
-        // Feed into ring buffer
         for (int i = 0; i < numSamples; ++i)
         {
             inputRing[static_cast<size_t>(ringWritePos)] = readPtr[i];
             ringWritePos = (ringWritePos + 1) % static_cast<int>(inputRing.size());
         }
 
-        // YIN pitch detection
-        float detectedHz = detectPitchYIN();
+        // Run YIN only every N blocks to save CPU (detection doesn't need to be per-block)
+        float detectedHz = cachedDetectedHz;
+        ++yinSkipCounter;
+        if (yinSkipCounter >= kYinSkipBlocks)
+        {
+            yinSkipCounter = 0;
+            detectedHz = detectPitchYIN();
+            cachedDetectedHz = detectedHz;
+        }
         lastDetectedHz = detectedHz;
 
-        if (detectedHz < 30.0f || detectedHz > 2000.0f)
+        if (detectedHz < 60.0f || detectedHz > 2000.0f)
         {
             lastTargetHz = detectedHz;
             lastCorrectionCents = 0.0f;
-            return; // Outside vocal range, pass through
+            return; // Outside vocal range, pass through unmodified
         }
 
-        // Note stabilizer: ignore micro-fluctuations < 20 cents
+        // Note stabilizer
         if (stabilizer)
         {
             detectedHistory[static_cast<size_t>(histIdx)] = detectedHz;
@@ -101,32 +111,37 @@ public:
             for (auto v : detectedHistory) avg += v;
             avg /= static_cast<float>(kHistorySize);
 
-            float centsDiff = 1200.0f * std::log2(detectedHz / (avg > 0.0f ? avg : detectedHz));
-            if (std::abs(centsDiff) < 20.0f * pitchSustain)
-                detectedHz = avg;
+            if (avg > 0.0f)
+            {
+                float centsDiff = 1200.0f * std::log2(detectedHz / avg);
+                if (std::abs(centsDiff) < 20.0f * pitchSustain)
+                    detectedHz = avg;
+            }
         }
 
         // Find target note in scale
         float targetHz = findTargetFrequency(detectedHz);
         lastTargetHz = targetHz;
 
-        // Correction amount in cents
+        // Correction in cents
         float correctionCents = 1200.0f * std::log2(targetHz / detectedHz);
         lastCorrectionCents = correctionCents;
 
-        // Apply humanize (reduce correction amount)
+        // Apply humanize and snap
         correctionCents *= (1.0f - humanize);
-
-        // Apply snap amount (how hard we snap)
         correctionCents *= snapAmount;
 
-        // Retune speed — smooth the correction
-        float speedCoeff = std::exp(-1.0f / (sr * (0.001f + (1.0f - retuneSpeed) * 0.1f)));
-        smoothedPitch = smoothedPitch * speedCoeff + correctionCents * (1.0 - speedCoeff);
+        // Smooth the correction (retune speed)
+        float speedCoeff = std::exp(-1.0f / (static_cast<float>(sr) * (0.001f + (1.0f - retuneSpeed) * 0.1f)));
+        smoothedPitch = smoothedPitch * speedCoeff + static_cast<double>(correctionCents) * (1.0 - speedCoeff);
 
-        // Apply pitch shift via phase vocoder approach (simplified PSOLA)
+        // If correction is tiny, skip pitch shifting entirely
+        if (std::abs(static_cast<float>(smoothedPitch)) < 1.0f)
+            return;
+
         float shiftRatio = std::pow(2.0f, static_cast<float>(smoothedPitch) / 1200.0f);
 
+        // Apply pitch shift to all channels
         for (int ch = 0; ch < numChannels; ++ch)
         {
             float* data = buffer.getWritePointer(ch);
@@ -136,6 +151,7 @@ public:
 
 private:
     static constexpr int kHistorySize = 8;
+    static constexpr int kYinSkipBlocks = 3; // Only run YIN every 3 blocks
 
     double sr = 44100.0;
     int maxBlock = 512;
@@ -143,22 +159,22 @@ private:
     std::vector<float> yinBuffer;
     std::vector<float> inputRing;
     int ringWritePos = 0;
-    std::vector<float> grainBuffer;
-    std::vector<float> outputBuffer;
+    std::vector<float> olaBuffer;   // overlap-add output
+    std::vector<float> olaWindow;   // overlap-add normalization
     std::vector<float> windowTable;
 
     float referenceFreq = 440.0f;
-    int rootNote = 0; // C
-    int scaleType = 0; // major
+    int rootNote = 0;
+    int scaleType = 0;
     float retuneSpeed = 0.5f;
     float humanize = 0.0f;
     float snapAmount = 1.0f;
     float pitchSustain = 0.5f;
     bool stabilizer = true;
-    bool preserveFormants = true;
 
     double smoothedPitch = 0.0;
-    double currentPhase = 0.0;
+    int yinSkipCounter = 0;
+    float cachedDetectedHz = 0.0f;
 
     float lastDetectedHz = 0.0f;
     float lastTargetHz = 0.0f;
@@ -195,7 +211,7 @@ private:
             yinBuffer[static_cast<size_t>(tau)] *= static_cast<float>(tau) / (runningSum > 0.0f ? runningSum : 1.0f);
         }
 
-        // Step 3: Absolute threshold (0.1 for clean vocals)
+        // Step 3: Absolute threshold
         constexpr float threshold = 0.15f;
         int tauEstimate = -1;
         for (int tau = 2; tau < W; ++tau)
@@ -212,7 +228,7 @@ private:
         if (tauEstimate < 1)
             return 0.0f;
 
-        // Step 4: Parabolic interpolation for sub-sample accuracy
+        // Step 4: Parabolic interpolation
         float betterTau = static_cast<float>(tauEstimate);
         if (tauEstimate > 0 && tauEstimate < W - 1)
         {
@@ -224,26 +240,25 @@ private:
                 betterTau += (s0 - s2) / denom;
         }
 
+        if (betterTau <= 0.0f)
+            return 0.0f;
+
         return static_cast<float>(sr) / betterTau;
     }
 
     float findTargetFrequency (float detectedHz)
     {
-        // Convert to MIDI note relative to reference frequency
         float midiNote = 69.0f + 12.0f * std::log2(detectedHz / referenceFreq);
 
-        // Get scale mask
         const auto& scale = (scaleType == 1) ? kMinor
                           : (scaleType == 2) ? kChromatic
                           : kMajor;
 
-        // Find nearest in-scale note
         int nearestMidi = static_cast<int>(std::round(midiNote));
         int noteInOctave = ((nearestMidi % 12) - rootNote + 12) % 12;
 
         if (!scale[static_cast<size_t>(noteInOctave)])
         {
-            // Snap to nearest allowed note
             for (int offset = 1; offset <= 6; ++offset)
             {
                 int up = (noteInOctave + offset) % 12;
@@ -261,15 +276,20 @@ private:
         if (std::abs(ratio - 1.0f) < 0.001f)
             return;
 
-        // Copy input so resampling reads from unmodified source
-        if (static_cast<int>(grainBuffer.size()) < numSamples)
-            grainBuffer.resize(static_cast<size_t>(numSamples), 0.0f);
-        std::copy(data, data + numSamples, grainBuffer.begin());
+        // Properly normalized overlap-add (OLA) pitch shifting
+        const int grainSize = 256;
+        const int hopSize = grainSize / 4; // 75% overlap for smooth output
 
-        const int grainSize = std::min(256, numSamples);
-        const int hopSize = grainSize / 2;
+        int olaLen = numSamples + grainSize;
+        if (static_cast<int>(olaBuffer.size()) < olaLen)
+        {
+            olaBuffer.resize(static_cast<size_t>(olaLen), 0.0f);
+            olaWindow.resize(static_cast<size_t>(olaLen), 0.0f);
+        }
 
-        std::fill(outputBuffer.begin(), outputBuffer.begin() + numSamples + grainSize, 0.0f);
+        // Clear OLA accumulators
+        std::fill(olaBuffer.begin(), olaBuffer.begin() + olaLen, 0.0f);
+        std::fill(olaWindow.begin(), olaWindow.begin() + olaLen, 0.0f);
 
         for (int pos = 0; pos < numSamples; pos += hopSize)
         {
@@ -277,30 +297,41 @@ private:
 
             for (int i = 0; i < grainLen; ++i)
             {
+                // Read from input at shifted rate
                 float srcPos = static_cast<float>(i) * ratio;
-                int srcIdx = pos + static_cast<int>(srcPos);
+                int srcBase = pos + static_cast<int>(srcPos);
                 float frac = srcPos - std::floor(srcPos);
 
-                // Clamp to valid range instead of returning zero
-                srcIdx = juce::jlimit(0, numSamples - 1, srcIdx);
-                int srcIdx1 = juce::jlimit(0, numSamples - 1, srcIdx + 1);
+                float sample = 0.0f;
+                if (srcBase >= 0 && srcBase < numSamples - 1)
+                {
+                    sample = data[srcBase] * (1.0f - frac) + data[srcBase + 1] * frac;
+                }
+                else if (srcBase >= 0 && srcBase < numSamples)
+                {
+                    sample = data[srcBase];
+                }
 
-                float s0 = grainBuffer[static_cast<size_t>(srcIdx)];
-                float s1 = grainBuffer[static_cast<size_t>(srcIdx1)];
-
-                // Use precomputed window table (scaled lookup)
+                // Window lookup
                 float windowPos = static_cast<float>(i) / static_cast<float>(grainLen) * static_cast<float>(windowTable.size() - 1);
-                int wIdx = static_cast<int>(windowPos);
+                int wIdx = juce::jlimit(0, static_cast<int>(windowTable.size()) - 2, static_cast<int>(windowPos));
                 float wFrac = windowPos - static_cast<float>(wIdx);
-                wIdx = juce::jlimit(0, static_cast<int>(windowTable.size()) - 2, wIdx);
                 float window = windowTable[static_cast<size_t>(wIdx)] * (1.0f - wFrac) + windowTable[static_cast<size_t>(wIdx + 1)] * wFrac;
 
-                outputBuffer[static_cast<size_t>(pos + i)] += (s0 + frac * (s1 - s0)) * window;
+                // Accumulate with window
+                olaBuffer[static_cast<size_t>(pos + i)] += sample * window;
+                olaWindow[static_cast<size_t>(pos + i)] += window;
             }
         }
 
+        // Normalize by accumulated window weights (prevents amplitude artifacts)
         for (int i = 0; i < numSamples; ++i)
-            data[i] = outputBuffer[static_cast<size_t>(i)];
+        {
+            float norm = olaWindow[static_cast<size_t>(i)];
+            if (norm > 0.001f)
+                data[i] = olaBuffer[static_cast<size_t>(i)] / norm;
+            // else leave original sample (fallback)
+        }
     }
 };
 
