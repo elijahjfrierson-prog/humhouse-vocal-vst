@@ -97,7 +97,10 @@ jobs:
           # Inno Setup is pre-installed on windows-2022 runners
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\humhouse-vocals.iss
           New-Item -ItemType Directory -Force -Path artifacts
-          Copy-Item "build\installer\HumHouse-Vocals-Installer.exe" -Destination "artifacts\HumHouse-Vocals-Installer.exe"
+          # Copy with versioned name from ISS OutputBaseFilename
+          Get-ChildItem "build\installer\*.exe" | ForEach-Object {
+            Copy-Item $_.FullName -Destination "artifacts\$($_.Name)"
+          }
 
       - name: Package Windows VST3 zip
         if: runner.os == 'Windows'
