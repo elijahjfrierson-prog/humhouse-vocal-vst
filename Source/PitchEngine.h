@@ -9,13 +9,17 @@ namespace humvocal
 {
 
 // ============================================================================
-// PitchEngine v3 — Autotalent-inspired algorithm
+// PitchEngine v4 — TD-PSOLA with MPM-style detection
 //
-// Detection:  FFT-based normalized autocorrelation  (O(N log N), not O(N²))
-// Shifting:   Twin-grain overlap-add with Hann window (SOLA-style)
+// Detection:  FFT-based NSDF with MPM peak picking (O(N log N))
+// Shifting:   Time-Domain Pitch Synchronous Overlap-Add (TD-PSOLA)
+//             Grain size adapts to detected pitch period — eliminates graininess
+// Smoothing:  juce::LinearSmoothValue for per-sample retune speed control
 //
-// This replaces the dual-head ring buffer approach which caused clicks
-// and the O(N²) YIN detector which killed CPU.
+// Based on:
+//   - McLeod Pitch Method (2005) for robust peak picking
+//   - TD-PSOLA literature for pitch-synchronous shifting
+//   - Autotalent (Tom Baran) for overall architecture
 // ============================================================================
 class PitchEngine
 {
@@ -28,12 +32,11 @@ public:
     {
         sr = sampleRate;
 
-        // Pre-compute Hann windows
+        // Pre-compute analysis Hann window
         for (int i = 0; i < kAnalysisSize; ++i)
-            analysisWindow[static_cast<size_t>(i)] = 0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float>(i) / static_cast<float>(kAnalysisSize));
-
-        for (int i = 0; i < kGrainSize; ++i)
-            grainWindow[static_cast<size_t>(i)] = 0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float>(i) / static_cast<float>(kGrainSize));
+            analysisWindow[static_cast<size_t>(i)] =
+                0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float>(i)
+                                         / static_cast<float>(kAnalysisSize));
 
         // FFT work buffer
         fftWork.assign (static_cast<size_t>(kFFTSize * 2), 0.0f);
@@ -42,11 +45,11 @@ public:
         for (auto& ch : channels)
         {
             ch.inputBuf.fill (0.0f);
-            ch.writePos = kGrainSize + kGrainHop;
-            ch.grains[0] = {};
-            ch.grains[1] = {};
-            ch.grainCounter = 1; // trigger first grain immediately
+            ch.writePos = kDefaultGrainSize + kDefaultGrainSize / 2;
+            for (auto& g : ch.grains) g = {};
             ch.nextGrainIdx = 0;
+            ch.samplesUntilNextGrain = 1;
+            ch.currentHopSize = kDefaultGrainSize / 2;
         }
 
         // Reset detection
@@ -54,15 +57,14 @@ public:
         detectWritePos = kAnalysisSize;
         analysisCounter = 0;
         cachedDetectedHz = 0.0f;
+        detectedPeriodSamples = kDefaultGrainSize / 2;
 
-        // Reset correction
-        smoothedRatio = 1.0;
-        targetRatio = 1.0;
+        // Reset smoothing
+        smoothedRatio.reset (sr, 0.005); // default 5ms ramp
+        smoothedRatio.setCurrentAndTargetValue (1.0);
+        updateSmoothRamp();
 
-        // Compute smooth coefficient for default retune speed
-        updateSmoothCoeff();
-
-        // Reset note history
+        // Reset history
         detectedHistory.fill (0.0f);
         histIdx = 0;
         lastDetectedHz = 0.0f;
@@ -70,11 +72,11 @@ public:
         lastCorrectionCents = 0.0f;
     }
 
-    // --- Parameter setters (same API as before) ---
+    // --- Parameter setters ---
     void setReferenceFrequency (float hz)     { referenceFreq = hz; }
     void setRootNote (int note)               { rootNote = note % 12; }
     void setScaleType (int type)              { scaleType = type; }
-    void setRetuneSpeed (float speed01)       { retuneSpeed = speed01; updateSmoothCoeff(); }
+    void setRetuneSpeed (float speed01)       { retuneSpeed = speed01; updateSmoothRamp(); }
     void setHumanize (float h)                { humanize = h; }
     void setSnapAmount (float s)              { snapAmount = s; }
     void setPitchSustain (float s)            { pitchSustain = s; }
@@ -101,139 +103,158 @@ public:
 
         for (int i = 0; i < numSamples; ++i)
         {
-            // ---- Write input to per-channel circular buffers & detection buffer ----
+            // ---- Write input to per-channel buffers & detection buffer ----
             for (int ch = 0; ch < numChannels; ++ch)
-            {
-                auto& state = channels[ch];
-                state.inputBuf[static_cast<size_t>(state.writePos)] = buffer.getSample (ch, i);
-            }
+                channels[ch].inputBuf[static_cast<size_t>(channels[ch].writePos)] =
+                    buffer.getSample (ch, i);
 
-            // Detection uses channel 0 only
             detectBuf[static_cast<size_t>(detectWritePos)] = buffer.getSample (0, i);
             detectWritePos = (detectWritePos + 1) % kBufSize;
 
-            // ---- Periodic pitch detection (every kAnalysisHop samples) ----
+            // ---- Periodic pitch detection ----
             ++analysisCounter;
             if (analysisCounter >= kAnalysisHop)
             {
                 analysisCounter = 0;
-                float hz = detectPitchFFT();
+                float hz = detectPitchMPM();
                 if (hz > 0.0f)
+                {
                     cachedDetectedHz = hz;
+                    detectedPeriodSamples = juce::jlimit (
+                        kMinPeriod, kMaxPeriod,
+                        static_cast<int>(std::round (sr / static_cast<double>(hz))));
+                }
                 updateCorrection();
             }
 
-            // ---- Smooth the correction ratio ----
-            smoothedRatio += smoothCoeff * (targetRatio - smoothedRatio);
+            // ---- Get smoothed ratio for this sample ----
+            double ratio = smoothedRatio.getNextValue();
 
-            // ---- Generate output via grain OLA (per channel) ----
+            // ---- TD-PSOLA output per channel ----
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 auto& state = channels[ch];
                 float output = 0.0f;
 
-                // Sum contributions from active grains
-                for (auto& grain : state.grains)
+                // Sum active grains
+                for (auto& g : state.grains)
                 {
-                    if (! grain.active)
-                        continue;
+                    if (! g.active) continue;
 
-                    float sample = cubicInterp (state.inputBuf, grain.readPos);
-                    float window = grainWindow[static_cast<size_t>(grain.phase)];
-                    output += sample * window;
+                    // Hann window computed inline (pitch-adaptive size)
+                    float w = 0.5f - 0.5f * std::cos (
+                        2.0f * kPi * static_cast<float>(g.phase)
+                        / static_cast<float>(g.grainSize));
+
+                    float sample = cubicInterp (state.inputBuf, g.readPos);
+                    output += sample * w;
 
                     // Advance read position at shifted rate
-                    grain.readPos += smoothedRatio;
-                    while (grain.readPos >= static_cast<double>(kBufSize))
-                        grain.readPos -= static_cast<double>(kBufSize);
-                    while (grain.readPos < 0.0)
-                        grain.readPos += static_cast<double>(kBufSize);
+                    g.readPos += ratio;
+                    while (g.readPos >= static_cast<double>(kBufSize))
+                        g.readPos -= static_cast<double>(kBufSize);
+                    while (g.readPos < 0.0)
+                        g.readPos += static_cast<double>(kBufSize);
 
-                    ++grain.phase;
-                    if (grain.phase >= kGrainSize)
-                        grain.active = false;
+                    ++g.phase;
+                    if (g.phase >= g.grainSize)
+                        g.active = false;
                 }
 
-                // Start new grain every kGrainHop output samples
-                --state.grainCounter;
-                if (state.grainCounter <= 0)
+                // Start new grain at pitch-synchronous intervals
+                --state.samplesUntilNextGrain;
+                if (state.samplesUntilNextGrain <= 0)
                 {
-                    state.grainCounter = kGrainHop;
+                    int period = detectedPeriodSamples;
+                    int grainSz = period * 2;                        // 2 pitch periods
+                    grainSz = juce::jlimit (kMinGrainSize, kMaxGrainSize, grainSz);
+
+                    state.currentHopSize = grainSz / 2;             // 50% overlap
+                    state.samplesUntilNextGrain = state.currentHopSize;
+
+                    // Find next grain slot
                     auto& g = state.grains[static_cast<size_t>(state.nextGrainIdx)];
+                    state.nextGrainIdx = (state.nextGrainIdx + 1) % kMaxGrains;
+
                     g.active = true;
                     g.phase = 0;
-                    // Start reading from kGrainSize samples behind current write position
-                    g.readPos = static_cast<double>((state.writePos - kGrainSize + kBufSize) % kBufSize);
-                    state.nextGrainIdx = 1 - state.nextGrainIdx;
+                    g.grainSize = grainSz;
+
+                    // Start reading from grainSize samples behind write position
+                    // Then search for a nearby peak to center the grain (phase alignment)
+                    int rawStart = (state.writePos - grainSz + kBufSize) % kBufSize;
+                    g.readPos = static_cast<double>(findNearbyPeak (state.inputBuf, rawStart, period));
                 }
 
                 buffer.setSample (ch, i, output);
-
-                // Advance write pointer
                 state.writePos = (state.writePos + 1) % kBufSize;
             }
         }
     }
 
 private:
-    // ---- Constants ----
     static constexpr float kPi = juce::MathConstants<float>::pi;
-    static constexpr int kMaxChannels   = 2;
+    static constexpr int kMaxChannels = 2;
 
     // FFT pitch detection
-    static constexpr int kFFTOrder      = 12;                    // 2^12 = 4096
-    static constexpr int kFFTSize       = 1 << kFFTOrder;        // 4096
-    static constexpr int kAnalysisSize  = kFFTSize / 2;          // 2048 samples analyzed
-    static constexpr int kAnalysisHop   = 512;                   // detect every 512 samples (~10ms @ 48kHz)
+    static constexpr int kFFTOrder     = 12;                     // 2^12 = 4096
+    static constexpr int kFFTSize      = 1 << kFFTOrder;         // 4096
+    static constexpr int kAnalysisSize = kFFTSize / 2;           // 2048 samples
+    static constexpr int kAnalysisHop  = 512;                    // ~10ms @ 48kHz
 
-    // Grain OLA pitch shifting
-    static constexpr int kGrainSize     = 1024;                  // ~21ms @ 48kHz
-    static constexpr int kGrainHop      = kGrainSize / 2;        // 50% overlap
-    static constexpr int kBufSize       = 8192;                   // Circular buffer size
+    // TD-PSOLA
+    static constexpr int kBufSize          = 16384;              // Large circular buffer
+    static constexpr int kMaxGrains        = 4;                  // Overlapping grains
+    static constexpr int kMinPeriod        = 48;                 // ~1000Hz @ 48kHz
+    static constexpr int kMaxPeriod        = 800;                // ~60Hz @ 48kHz
+    static constexpr int kMinGrainSize     = 96;                 // 2 * minPeriod
+    static constexpr int kMaxGrainSize     = 1600;               // 2 * maxPeriod
+    static constexpr int kDefaultGrainSize = 480;                // 2 * ~200Hz period
+    static constexpr int kHistorySize      = 12;
 
-    // History for note stabilizer
-    static constexpr int kHistorySize   = 12;
+    // MPM peak picking
+    static constexpr float kMPMCutoff      = 0.93f;
+    static constexpr float kMPMSmallCutoff = 0.5f;
 
-    // ---- State ----
     double sr = 48000.0;
 
-    // Pre-computed windows
+    // Analysis window
     std::array<float, kAnalysisSize> analysisWindow {};
-    std::array<float, kGrainSize>    grainWindow {};
 
     // FFT
     juce::dsp::FFT fft { kFFTOrder };
     std::vector<float> fftWork;
 
-    // Detection buffer (channel 0)
+    // Detection buffer
     std::array<float, kBufSize> detectBuf {};
     int detectWritePos = 0;
     int analysisCounter = 0;
     float cachedDetectedHz = 0.0f;
+    int detectedPeriodSamples = kDefaultGrainSize / 2;
 
-    // Per-channel grain OLA state
+    // Per-channel TD-PSOLA state
     struct Grain
     {
-        double readPos = 0.0;
-        int    phase   = 0;
-        bool   active  = false;
+        double readPos  = 0.0;
+        int    phase    = 0;
+        int    grainSize = kDefaultGrainSize;
+        bool   active   = false;
     };
 
     struct ChannelState
     {
         std::array<float, kBufSize> inputBuf {};
         int writePos = 0;
-        std::array<Grain, 2> grains {};
-        int grainCounter = 0;
+        std::array<Grain, kMaxGrains> grains {};
         int nextGrainIdx = 0;
+        int samplesUntilNextGrain = 0;
+        int currentHopSize = kDefaultGrainSize / 2;
     };
 
     std::array<ChannelState, kMaxChannels> channels;
 
-    // Shared pitch correction
-    double smoothedRatio = 1.0;
-    double targetRatio   = 1.0;
-    double smoothCoeff   = 0.01;
+    // Smoothed pitch ratio (per-sample via LinearSmoothValue)
+    juce::LinearSmoothedValue<double> smoothedRatio { 1.0 };
 
     // Parameters
     float referenceFreq = 440.0f;
@@ -253,29 +274,24 @@ private:
     int histIdx = 0;
 
     // ========================================================================
-    //  FFT-based pitch detection (normalized autocorrelation)
-    //  O(N log N) instead of O(N²) YIN
+    //  MPM-style pitch detection via FFT NSDF
     // ========================================================================
-    float detectPitchFFT()
+    float detectPitchMPM()
     {
-        // Fill first half of FFT buffer with windowed input from detection buffer
+        // Fill FFT buffer with windowed input, zero-padded
         for (int i = 0; i < kAnalysisSize; ++i)
         {
             int idx = (detectWritePos - kAnalysisSize + i + kBufSize) % kBufSize;
-            fftWork[static_cast<size_t>(i)] = detectBuf[static_cast<size_t>(idx)] * analysisWindow[static_cast<size_t>(i)];
+            fftWork[static_cast<size_t>(i)] =
+                detectBuf[static_cast<size_t>(idx)] * analysisWindow[static_cast<size_t>(i)];
         }
-        // Zero-pad the second half (for linear autocorrelation)
-        for (int i = kAnalysisSize; i < kFFTSize; ++i)
+        for (int i = kAnalysisSize; i < kFFTSize * 2; ++i)
             fftWork[static_cast<size_t>(i)] = 0.0f;
 
-        // Clear the complex part workspace
-        for (int i = kFFTSize; i < kFFTSize * 2; ++i)
-            fftWork[static_cast<size_t>(i)] = 0.0f;
-
-        // Forward FFT (real → complex)
+        // Forward FFT
         fft.performRealOnlyForwardTransform (fftWork.data(), true);
 
-        // Compute power spectrum (magnitude²) in-place
+        // Power spectrum in-place
         for (int k = 0; k < kFFTSize; ++k)
         {
             float re = fftWork[static_cast<size_t>(2 * k)];
@@ -287,44 +303,74 @@ private:
         // Inverse FFT → autocorrelation
         fft.performRealOnlyInverseTransform (fftWork.data());
 
-        // Normalize by zero-lag value
         float acf0 = fftWork[0];
-        if (acf0 <= 0.0f)
-            return 0.0f;
+        if (acf0 <= 0.0f) return 0.0f;
 
+        // Normalize to get NSDF-like values (0 to 1 range)
         float invAcf0 = 1.0f / acf0;
 
-        // Search for the first strong peak between minLag and maxLag
-        int minLag = static_cast<int>(sr / 1000.0);  // ~1kHz max vocal pitch
-        int maxLag = static_cast<int>(sr / 60.0);     // ~60Hz min vocal pitch
-        maxLag = juce::jmin (maxLag, kAnalysisSize - 1);
+        int minLag = juce::jmax (1, static_cast<int>(sr / 1000.0));
+        int maxLag = juce::jmin (kAnalysisSize - 1, static_cast<int>(sr / 60.0));
 
-        // Find the highest peak in the valid lag range
-        float bestVal = 0.0f;
-        int   bestLag = 0;
+        // ---- MPM peak picking ----
+        // Find peaks in each positive lobe of the NSDF
+        struct Peak { int lag; float val; };
+        Peak bestPeak { 0, 0.0f };
+        bool inPositiveLobe = false;
+        Peak currentLobePeak { 0, -1.0f };
 
         for (int lag = minLag; lag <= maxLag; ++lag)
         {
             float val = fftWork[static_cast<size_t>(lag)] * invAcf0;
 
-            if (val > bestVal)
+            if (val > 0.0f)
             {
-                bestVal = val;
-                bestLag = lag;
+                if (! inPositiveLobe)
+                {
+                    inPositiveLobe = true;
+                    currentLobePeak = { lag, val };
+                }
+                else if (val > currentLobePeak.val)
+                {
+                    currentLobePeak = { lag, val };
+                }
+            }
+            else if (inPositiveLobe)
+            {
+                // End of positive lobe — check this peak
+                inPositiveLobe = false;
+
+                if (currentLobePeak.val > kMPMSmallCutoff)
+                {
+                    // MPM: accept the first peak above the cutoff threshold
+                    if (currentLobePeak.val >= kMPMCutoff)
+                    {
+                        bestPeak = currentLobePeak;
+                        break; // first peak above cutoff wins
+                    }
+
+                    // Track the overall best peak as fallback
+                    if (currentLobePeak.val > bestPeak.val)
+                        bestPeak = currentLobePeak;
+                }
             }
         }
 
-        // Confidence check — reject weak or unvoiced
-        if (bestVal < 0.3f || bestLag < 1)
+        // Handle case where we're still in a positive lobe at maxLag
+        if (inPositiveLobe && currentLobePeak.val > bestPeak.val
+            && currentLobePeak.val > kMPMSmallCutoff)
+            bestPeak = currentLobePeak;
+
+        if (bestPeak.val < 0.3f || bestPeak.lag < 1)
             return 0.0f;
 
         // Parabolic interpolation for sub-sample accuracy
-        float betterLag = static_cast<float>(bestLag);
-        if (bestLag > minLag && bestLag < maxLag)
+        float betterLag = static_cast<float>(bestPeak.lag);
+        if (bestPeak.lag > minLag && bestPeak.lag < maxLag)
         {
-            float y0 = fftWork[static_cast<size_t>(bestLag - 1)] * invAcf0;
-            float y1 = bestVal;
-            float y2 = fftWork[static_cast<size_t>(bestLag + 1)] * invAcf0;
+            float y0 = fftWork[static_cast<size_t>(bestPeak.lag - 1)] * invAcf0;
+            float y1 = bestPeak.val;
+            float y2 = fftWork[static_cast<size_t>(bestPeak.lag + 1)] * invAcf0;
             float denom = 2.0f * (2.0f * y1 - y2 - y0);
             if (std::abs (denom) > 1e-9f)
                 betterLag += (y0 - y2) / denom;
@@ -334,7 +380,7 @@ private:
     }
 
     // ========================================================================
-    //  Determine correction ratio from detected pitch
+    //  Update correction from detected pitch
     // ========================================================================
     void updateCorrection()
     {
@@ -347,7 +393,6 @@ private:
         {
             float stableHz = detectedHz;
 
-            // Note stabilizer — locks onto a note and holds it
             if (stabilizer)
             {
                 detectedHistory[static_cast<size_t>(histIdx)] = detectedHz;
@@ -356,9 +401,8 @@ private:
                 float avg = 0.0f;
                 int count = 0;
                 for (auto v : detectedHistory)
-                {
                     if (v > 0.0f) { avg += v; ++count; }
-                }
+
                 if (count > 0)
                 {
                     avg /= static_cast<float>(count);
@@ -369,15 +413,12 @@ private:
                 }
             }
 
-            // Find target note in scale
             float targetHz = findTargetFrequency (stableHz);
             lastTargetHz = targetHz;
 
-            // Correction in cents
             float corrCents = 1200.0f * std::log2 (targetHz / stableHz);
             lastCorrectionCents = corrCents;
 
-            // Apply humanize (reduce correction) and snap (strength)
             corrCents *= (1.0f - humanize);
             corrCents *= snapAmount;
 
@@ -390,23 +431,45 @@ private:
             lastCorrectionCents = 0.0f;
         }
 
-        targetRatio = newTargetRatio;
+        smoothedRatio.setTargetValue (newTargetRatio);
     }
 
     // ========================================================================
-    //  Update smooth coefficient when retune speed changes
+    //  Update LinearSmoothValue ramp when retune speed changes
     // ========================================================================
-    void updateSmoothCoeff()
+    void updateSmoothRamp()
     {
-        // Speed 0 → 50ms convergence (natural), Speed 1 → 0.3ms (robotic/instant)
-        double tc = 0.0003 + (1.0 - static_cast<double>(retuneSpeed))
-                           * (1.0 - static_cast<double>(retuneSpeed)) * 0.05;
+        // Speed 0 → slow glide (400ms), Speed 1 → instant snap (0.3ms)
+        double rampSeconds = 0.0003 + (1.0 - static_cast<double>(retuneSpeed))
+                                    * (1.0 - static_cast<double>(retuneSpeed)) * 0.4;
         if (sr > 0.0)
-            smoothCoeff = 1.0 - std::exp (-1.0 / (sr * tc));
+            smoothedRatio.reset (sr, rampSeconds);
     }
 
     // ========================================================================
-    //  Cubic interpolation from circular buffer
+    //  Find nearby peak in input buffer for phase-aligned grain start
+    // ========================================================================
+    int findNearbyPeak (const std::array<float, kBufSize>& buf, int center, int searchRange) const
+    {
+        int halfSearch = searchRange / 2;
+        int bestIdx = center;
+        float bestAbs = 0.0f;
+
+        for (int off = -halfSearch; off <= halfSearch; ++off)
+        {
+            int idx = (center + off + kBufSize) % kBufSize;
+            float val = std::abs (buf[static_cast<size_t>(idx)]);
+            if (val > bestAbs)
+            {
+                bestAbs = val;
+                bestIdx = idx;
+            }
+        }
+        return bestIdx;
+    }
+
+    // ========================================================================
+    //  Catmull-Rom cubic interpolation from circular buffer
     // ========================================================================
     float cubicInterp (const std::array<float, kBufSize>& buf, double pos) const
     {
@@ -422,7 +485,6 @@ private:
         float y2 = buf[static_cast<size_t>(i2)];
         float y3 = buf[static_cast<size_t>(i3)];
 
-        // Catmull-Rom cubic interpolation
         float a0 = -0.5f * y0 + 1.5f * y1 - 1.5f * y2 + 0.5f * y3;
         float a1 =  y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
         float a2 = -0.5f * y0 + 0.5f * y2;
