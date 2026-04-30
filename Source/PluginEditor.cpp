@@ -376,6 +376,7 @@ void HumHouseVocalsEditor::setupModuleStrips()
     compStrip.addKnob("ATK", "Attack Time (ms)");
     compStrip.addKnob("REL", "Release Time (ms)");
     compStrip.addKnob("MAKEUP", "Makeup Gain (dB)");
+    compStrip.addKnob("GAIN", "Compressor Output Gain (dB)");
     compStrip.addCombo({"THD Off","THD Soft","THD Hard"});
     addAndMakeVisible(compStrip);
 
@@ -385,6 +386,7 @@ void HumHouseVocalsEditor::setupModuleStrips()
     mbCompStrip.addKnob("CLARITY", "Clarity Band (600-3k Hz)");
     mbCompStrip.addKnob("PRES", "Presence Band (3k-8k Hz)");
     mbCompStrip.addKnob("AIR", "Air Band (8k+ Hz)");
+    mbCompStrip.addKnob("GAIN", "Multiband Output Gain (dB)");
     addAndMakeVisible(mbCompStrip);
 
     // DE-ESSER — Freq, Threshold, Reduction
@@ -439,6 +441,7 @@ void HumHouseVocalsEditor::setupModuleStrips()
     // LIMITER — Ceiling, Release
     limiterStrip.addKnob("CEIL", "Limiter Ceiling (dB)");
     limiterStrip.addKnob("REL", "Limiter Release Time (ms)");
+    limiterStrip.addKnob("GAIN", "Limiter Output Gain (dB)");
     addAndMakeVisible(limiterStrip);
 }
 
@@ -500,6 +503,7 @@ void HumHouseVocalsEditor::attachParameters()
     attachSlider(*compStrip.knobs[2], "compAttack");
     attachSlider(*compStrip.knobs[3], "compRelease");
     attachSlider(*compStrip.knobs[4], "compMakeup");
+    attachSlider(*compStrip.knobs[5], "compOutputGain");
     attachCombo(*compStrip.combos[0], "thdMode");
 
     // Multiband Compressor
@@ -509,6 +513,7 @@ void HumHouseVocalsEditor::attachParameters()
     attachSlider(*mbCompStrip.knobs[2], "mbThresh3");
     attachSlider(*mbCompStrip.knobs[3], "mbThresh4");
     attachSlider(*mbCompStrip.knobs[4], "mbThresh5");
+    attachSlider(*mbCompStrip.knobs[5], "mbOutputGain");
 
     // De-Esser
     attachButton(deEsserStrip.activeButton, "deEsserActive");
@@ -563,6 +568,7 @@ void HumHouseVocalsEditor::attachParameters()
     attachButton(limiterStrip.activeButton, "limiterActive");
     attachSlider(*limiterStrip.knobs[0], "limiterCeiling");
     attachSlider(*limiterStrip.knobs[1], "limiterRelease");
+    attachSlider(*limiterStrip.knobs[2], "limiterOutputGain");
 
     // Scale selectors
     attachCombo(rootNoteBox, "rootNote");

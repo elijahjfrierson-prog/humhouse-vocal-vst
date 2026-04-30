@@ -51,6 +51,7 @@ public:
     }
 
     void setActive (bool on) { active = on; }
+    void setOutputGain (float db) { outputGainLin = juce::Decibels::decibelsToGain(db); }
 
     void setBandParams (int band, float threshold, float ratio, float attack, float release, float makeup, float mix)
     {
@@ -98,6 +99,10 @@ public:
             for (int ch = 0; ch < numChannels; ++ch)
                 buffer.addFrom(ch, 0, bandBuffers[b], ch, 0, numSamples);
         }
+
+        // Output gain
+        if (std::abs(outputGainLin - 1.0f) > 0.001f)
+            buffer.applyGain(0, numSamples, outputGainLin);
     }
 
 private:
@@ -106,6 +111,7 @@ private:
     double sr = 44100.0;
     int bs = 512;
     bool active = false;
+    float outputGainLin = 1.0f;
 
     // Default crossover frequencies: vocal-focused
     std::array<float, kNumCrossovers> crossoverFreqs = {{ 200.0f, 600.0f, 3000.0f, 8000.0f }};

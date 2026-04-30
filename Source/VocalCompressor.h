@@ -28,6 +28,7 @@ public:
     void setAutoLevelTarget (float db) { autoLevelTarget = db; }
     void setTHDMode (int mode) { thdMode = mode; } // 0=off, 1=soft, 2=hard
     void setActive (bool on) { active = on; }
+    void setOutputGain (float db) { outputGainLin = juce::Decibels::decibelsToGain(db); }
 
     void process (juce::AudioBuffer<float>& buffer)
     {
@@ -88,6 +89,10 @@ public:
             for (int ch = 0; ch < numChannels; ++ch)
                 buffer.applyGain(ch, 0, numSamples, correction);
         }
+
+        // Output gain
+        if (std::abs(outputGainLin - 1.0f) > 0.001f)
+            buffer.applyGain(0, numSamples, outputGainLin);
     }
 
 private:
@@ -104,6 +109,7 @@ private:
     float autoLevelTarget = -14.0f;
     int thdMode = 0;
     float envelope = 0.0f;
+    float outputGainLin = 1.0f;
 
     float computeGainReduction (float inputDb) const
     {

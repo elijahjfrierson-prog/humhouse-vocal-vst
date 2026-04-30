@@ -28,6 +28,7 @@ public:
     void setCeiling (float db) { ceilingDb = db; ceilingLin = juce::Decibels::decibelsToGain(db); }
     void setRelease (float ms) { releaseMs = ms; }
     void setActive (bool on) { active = on; }
+    void setOutputGain (float db) { outputGainLin = juce::Decibels::decibelsToGain(db); }
 
     void process (juce::AudioBuffer<float>& buffer)
     {
@@ -62,6 +63,10 @@ public:
                 buffer.setSample(ch, i, sample * gain);
             }
         }
+
+        // Output gain (applied after limiting)
+        if (std::abs(outputGainLin - 1.0f) > 0.001f)
+            buffer.applyGain(0, numSamples, outputGainLin);
     }
 
 private:
@@ -71,6 +76,7 @@ private:
     float ceilingLin = 0.966f;
     float releaseMs = 50.0f;
     float envelope = 0.0f;
+    float outputGainLin = 1.0f;
     int writePos = 0;
     int lookaheadSamples = 44;
 

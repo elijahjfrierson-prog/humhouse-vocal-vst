@@ -60,6 +60,7 @@ HumHouseVocalsProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterBool>  ("autoLevel",     "Auto-Level",     false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("autoLevelTarget","Auto-Level Target",-30.0f, 0.0f, -14.0f));
     params.push_back (std::make_unique<juce::AudioParameterInt>   ("thdMode",       "THD Mode",       0, 2, 0)); // off/soft/hard
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("compOutputGain","Comp Output Gain", -24.0f, 24.0f, 0.0f));
 
     // --- DE-ESSER ---
     params.push_back (std::make_unique<juce::AudioParameterBool>  ("deEsserActive", "De-Esser Active", false));
@@ -128,11 +129,13 @@ HumHouseVocalsProcessor::createParameterLayout()
         params.push_back (std::make_unique<juce::AudioParameterFloat> ("mbRel"    + sb, "MB Release "+ sb, 10.0f, 500.0f, 50.0f));
         params.push_back (std::make_unique<juce::AudioParameterFloat> ("mbMakeup" + sb, "MB Makeup " + sb, -12.0f, 24.0f, 0.0f));
     }
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("mbOutputGain", "MB Output Gain", -24.0f, 24.0f, 0.0f));
 
     // --- OUTPUT LIMITER ---
     params.push_back (std::make_unique<juce::AudioParameterBool>  ("limiterActive",  "Limiter Active",  false));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("limiterCeiling", "Limiter Ceiling", -12.0f, 0.0f, -0.3f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("limiterRelease", "Limiter Release", 10.0f, 500.0f, 50.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("limiterOutputGain", "Limiter Output Gain", -24.0f, 24.0f, 0.0f));
 
     // --- MASTER ---
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("inputGain",  "Input Gain",  -24.0f, 24.0f, 0.0f));
@@ -377,6 +380,7 @@ void HumHouseVocalsProcessor::updateModuleParameters()
     compressor.setAutoLevel(apvts.getRawParameterValue("autoLevel")->load() > 0.5f);
     compressor.setAutoLevelTarget(apvts.getRawParameterValue("autoLevelTarget")->load());
     compressor.setTHDMode(static_cast<int>(apvts.getRawParameterValue("thdMode")->load()));
+    compressor.setOutputGain(apvts.getRawParameterValue("compOutputGain")->load());
 
     // Multiband Compressor
     multibandComp.setActive(apvts.getRawParameterValue("mbActive")->load() > 0.5f);
@@ -391,6 +395,7 @@ void HumHouseVocalsProcessor::updateModuleParameters()
             apvts.getRawParameterValue("mbMakeup" + sb)->load(),
             1.0f);
     }
+    multibandComp.setOutputGain(apvts.getRawParameterValue("mbOutputGain")->load());
 
     // De-Esser
     deEsser.setActive(apvts.getRawParameterValue("deEsserActive")->load() > 0.5f);
@@ -452,6 +457,7 @@ void HumHouseVocalsProcessor::updateModuleParameters()
     limiter.setActive(apvts.getRawParameterValue("limiterActive")->load() > 0.5f);
     limiter.setCeiling(apvts.getRawParameterValue("limiterCeiling")->load());
     limiter.setRelease(apvts.getRawParameterValue("limiterRelease")->load());
+    limiter.setOutputGain(apvts.getRawParameterValue("limiterOutputGain")->load());
 }
 
 // ---------------------------------------------------------------------------
