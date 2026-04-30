@@ -106,7 +106,6 @@ void HumHouseVocalsEditor::ModuleStrip::paint (juce::Graphics& g)
 void HumHouseVocalsEditor::ModuleStrip::resized()
 {
     auto area = getLocalBounds().reduced(4);
-
     // Toggle button at top
     activeButton.setBounds(area.removeFromTop(22));
 
@@ -205,8 +204,16 @@ HumHouseVocalsEditor::HumHouseVocalsEditor (HumHouseVocalsProcessor& p)
     setupPresetControls();
     setupScaleControls();
 
-    // Restore persisted UI scale
+    // Restore persisted UI scale — this calls setSize() which triggers resized()
+    // ensuring all module strip knobs are properly laid out
     applyUIScale(processorRef.getUIScale());
+
+    // Force child strip re-layout (setSize may skip resized() if size unchanged)
+    for (auto* strip : { &pitchStrip, &gateStrip, &eqStrip, &compStrip,
+                         &mbCompStrip, &deEsserStrip, &satStrip, &tapeStrip,
+                         &widthStrip, &doublerStrip, &reverbStrip, &delayStrip,
+                         &lofiStrip, &limiterStrip })
+        strip->resized();
 
     startTimerHz(15);
 }
