@@ -319,38 +319,33 @@ private:
         }
         else if (name == "Trap Hard AutoTune")
         {
-            // Hard pitch correction, aggressive compression, bright EQ, short delay
-            set("retuneSpeed", 0.95f);       // near-instant = robotic
-            set("humanize", 0.05f);           // minimal humanize
-            set("snapAmount", 1.0f);          // full snap
-            set("pitchSustain", 0.3f);
-            set("scaleType", 1.0f);           // minor
-            setBool("noteStabilizer", true);
-
+            // Hard trap — aggressive compression, bright EQ, convolver for space
             set("veqF1", 120.0f);              // cut rumble
             set("veqG4", -2.0f);           // cut mud at 300Hz
             set("veqG6", 2.0f);            // presence boost
             set("veqG8", 3.0f);            // high-mid bite
             set("veqG9", 1.5f);            // presence sparkle 4kHz
             set("veqG11", 2.5f);            // air
+            set("veqQ6", 1.8f);            // tighter presence peak
+            set("veqQ8", 2.0f);            // focused bite
 
             setBool("mbActive", true);
-            set("mbThresh1", -24.0f);       // tame body
+            set("mbThresh1", -24.0f);
             set("mbRatio1", 6.0f);
-            set("mbThresh3", -20.0f);       // control clarity
+            set("mbThresh3", -20.0f);
             set("mbRatio3", 3.0f);
-            set("mbMakeup5", 2.0f);         // lift air band
+            set("mbMakeup5", 2.0f);
 
-            set("compThreshold", -22.0f);     // aggressive compression
-            set("compRatio", 6.0f);           // high ratio
-            set("compAttack", 3.0f);          // fast attack
+            set("compThreshold", -22.0f);
+            set("compRatio", 6.0f);
+            set("compAttack", 3.0f);
             set("compRelease", 40.0f);
-            set("compKnee", 3.0f);            // hard knee
-            set("thdMode", 2.0f);             // hard THD (transistor edge)
+            set("compKnee", 3.0f);
+            set("thdMode", 2.0f);
 
             setBool("satActive", true);
             set("satDrive", 0.25f);
-            set("satMode", 0.0f);             // tube warmth
+            set("satMode", 0.0f);
             set("satMix", 0.4f);
 
             setBool("deEsserActive", true);
@@ -363,30 +358,34 @@ private:
             set("delayDuck", 0.6f);
 
             setBool("reverbActive", true);
-            set("reverbShortMix", 0.12f);
-            set("reverbLongMix", 0.08f);
+            set("reverbShortMix", 0.10f);
+            set("reverbLongMix", 0.06f);
             set("reverbDuck", 0.7f);
+
+            setBool("convActive", true);
+            set("convSize", 0.8f);
+            set("convDamping", 0.6f);
+            set("convMix", 0.12f);
+            setBool("convReverse", false);
 
             set("limiterCeiling", -0.3f);
         }
         else if (name == "Trap Melodic")
         {
-            // Melodic trap — moderate autotune, warm saturation, medium reverb
-            set("retuneSpeed", 0.75f);
-            set("humanize", 0.15f);
-            set("snapAmount", 0.9f);
-            set("scaleType", 1.0f);           // minor
-
+            // Melodic trap — warm saturation, lush reverb, doubler
             set("veqF1", 100.0f);
+            set("veqG5", -1.0f);            // tame boxiness
             set("veqG6", 1.5f);
             set("veqG8", 2.0f);
-            set("veqG11", 3.0f);            // more air
+            set("veqG10", 1.5f);            // shimmer
+            set("veqG11", 3.0f);
+            set("veqQ11", 0.8f);            // wide air shelf
 
             set("compThreshold", -20.0f);
             set("compRatio", 4.0f);
             set("compAttack", 5.0f);
             set("compRelease", 50.0f);
-            set("thdMode", 1.0f);             // soft THD
+            set("thdMode", 1.0f);
 
             setBool("satActive", true);
             set("satDrive", 0.2f);
@@ -398,8 +397,14 @@ private:
             set("reverbLongMix", 0.12f);
             set("reverbDuck", 0.5f);
 
+            setBool("convActive", true);
+            set("convSize", 1.2f);
+            set("convDamping", 0.4f);
+            set("convMix", 0.15f);
+            setBool("convReverse", false);
+
             setBool("delayActive", true);
-            set("delayTime", 330.0f);         // longer delay
+            set("delayTime", 330.0f);
             set("delayFeedback", 0.3f);
             set("delayMix", 0.18f);
             set("delayDuck", 0.5f);
@@ -415,26 +420,28 @@ private:
         }
         else if (name == "Trap Dark & Wet")
         {
-            // Future/Young Thug style — dark, washed, heavy reverb
-            set("retuneSpeed", 0.85f);
-            set("humanize", 0.1f);
-            set("snapAmount", 0.95f);
-            set("scaleType", 1.0f);
-
+            // Future/Young Thug style — dark, washed, heavy reverb + reverse convolver
             set("veqF1", 80.0f);
-            set("veqF12", 14000.0f);            // roll off highs for dark tone
-            set("veqG3", 2.0f);            // low warmth
-            set("veqG8", -1.5f);           // scoop high-mids
+            set("veqF12", 14000.0f);
+            set("veqG3", 2.0f);
+            set("veqG5", -1.0f);
+            set("veqG8", -1.5f);
+            set("veqQ3", 0.7f);             // wide warmth
 
             set("compThreshold", -24.0f);
             set("compRatio", 5.0f);
             set("compAttack", 3.0f);
+            set("compRelease", 45.0f);
             set("thdMode", 1.0f);
 
             setBool("satActive", true);
             set("satDrive", 0.35f);
-            set("satMode", 1.0f);             // tape saturation
+            set("satMode", 1.0f);
             set("satMix", 0.4f);
+
+            setBool("tapeActive", true);
+            set("tapeDrive", 0.15f);
+            set("tapeFlutter", 0.08f);
 
             setBool("deEsserActive", true);
             set("deEsserThresh", -18.0f);
@@ -444,6 +451,12 @@ private:
             set("reverbLongMix", 0.25f);
             set("reverbDuck", 0.4f);
             set("reverbPostEQ", 5000.0f);
+
+            setBool("convActive", true);
+            set("convSize", 2.0f);
+            set("convDamping", 0.7f);
+            set("convMix", 0.2f);
+            setBool("convReverse", true);   // reverse reverb — FL Studio vibe
 
             setBool("delayActive", true);
             set("delayTime", 400.0f);
@@ -456,14 +469,7 @@ private:
         else if (name == "Smooth R&B")
         {
             // SZA / Chris Brown style — warm, smooth, subtle correction
-            set("retuneSpeed", 0.4f);         // natural correction
-            set("humanize", 0.35f);
-            set("snapAmount", 0.7f);
-            set("scaleType", 0.0f);           // major
 
-            setBool("formantActive", true);
-            set("formantShift", -0.5f);        // subtle warm down-shift
-            set("formantMix", 0.4f);
 
             set("veqF1", 70.0f);              // keep chest resonance
             set("veqG3", 1.5f);            // warmth
@@ -507,9 +513,6 @@ private:
         else if (name == "R&B Warm Intimate")
         {
             // Close-mic intimate feel — Brent Faiyaz style
-            set("retuneSpeed", 0.3f);
-            set("humanize", 0.4f);
-            set("snapAmount", 0.6f);
 
             set("veqF1", 60.0f);
             set("veqG3", 2.5f);            // chest warmth
@@ -545,9 +548,6 @@ private:
         else if (name == "Neo Soul Vintage")
         {
             // Vintage warmth — Erykah Badu / D'Angelo
-            set("retuneSpeed", 0.2f);
-            set("humanize", 0.5f);
-            set("snapAmount", 0.5f);
 
             set("veqF1", 80.0f);
             set("veqG3", 3.0f);
@@ -582,10 +582,6 @@ private:
         else if (name == "Pop Radio Ready")
         {
             // Polished pop — Taylor Swift / Dua Lipa
-            set("retuneSpeed", 0.6f);
-            set("humanize", 0.2f);
-            set("snapAmount", 0.85f);
-            set("scaleType", 0.0f);
 
             set("veqF1", 100.0f);
             set("veqG6", -1.0f);           // clean mids
@@ -624,9 +620,6 @@ private:
         }
         else if (name == "Pop Bright & Airy")
         {
-            set("retuneSpeed", 0.55f);
-            set("humanize", 0.25f);
-            set("snapAmount", 0.8f);
 
             set("veqF1", 110.0f);
             set("veqG5", -1.0f);           // clean boxiness
@@ -665,9 +658,6 @@ private:
         else if (name == "Rock Aggressive")
         {
             // Screaming / aggressive rock vocal
-            set("retuneSpeed", 0.3f);
-            set("humanize", 0.3f);
-            set("snapAmount", 0.6f);
 
             set("veqF1", 150.0f);              // tight low cut
             set("veqG6", 2.0f);            // mid grit
@@ -702,9 +692,6 @@ private:
         }
         else if (name == "Rock Warm Analog")
         {
-            set("retuneSpeed", 0.25f);
-            set("humanize", 0.4f);
-            set("snapAmount", 0.5f);
 
             set("veqF1", 100.0f);
             set("veqG3", 2.0f);
@@ -738,8 +725,6 @@ private:
         }
         else if (name == "Lo-Fi Tape Vocal")
         {
-            set("retuneSpeed", 0.2f);
-            set("humanize", 0.5f);
 
             set("veqF1", 200.0f);
             set("veqF12", 8000.0f);
@@ -771,7 +756,6 @@ private:
         }
         else if (name == "Telephone / Radio")
         {
-            setBool("pitchActive", false);
 
             set("veqF1", 400.0f);
             set("veqF12", 3500.0f);
@@ -795,8 +779,6 @@ private:
         }
         else if (name == "Vintage Saturated")
         {
-            set("retuneSpeed", 0.15f);
-            set("humanize", 0.5f);
 
             set("veqF1", 80.0f);
             set("veqF12", 12000.0f);
@@ -828,16 +810,7 @@ private:
         }
         else if (name == "Robotic AutoTune")
         {
-            set("retuneSpeed", 1.0f);         // maximum = full robotic
-            set("humanize", 0.0f);
-            set("snapAmount", 1.0f);
-            set("pitchSustain", 0.1f);
-            set("scaleType", 1.0f);           // minor for wider jumps
-            setBool("noteStabilizer", true);
 
-            setBool("formantActive", true);
-            set("formantShift", 3.0f);
-            set("formantMix", 0.6f);
 
             set("veqF1", 100.0f);
             set("veqG4", -3.0f);           // cut 300Hz mud
@@ -881,13 +854,7 @@ private:
         }
         else if (name == "Ethereal Wide")
         {
-            set("retuneSpeed", 0.4f);
-            set("humanize", 0.3f);
-            set("snapAmount", 0.8f);
 
-            setBool("formantActive", true);
-            set("formantShift", 2.0f);         // airy up-shift
-            set("formantMix", 0.35f);
 
             set("veqF1", 80.0f);
             set("veqG3", 1.0f);            // body warmth
@@ -935,9 +902,6 @@ private:
         }
         else if (name == "Doubled & Thick")
         {
-            set("retuneSpeed", 0.5f);
-            set("humanize", 0.2f);
-            set("snapAmount", 0.85f);
 
             set("veqF1", 80.0f);
             set("veqG3", 1.5f);            // warmth
@@ -981,9 +945,6 @@ private:
         }
         else if (name == "Reverb Wash")
         {
-            set("retuneSpeed", 0.35f);
-            set("humanize", 0.3f);
-            set("snapAmount", 0.75f);
 
             set("veqF1", 80.0f);
             set("veqG3", 1.0f);
@@ -1021,9 +982,6 @@ private:
         }
         else if (name == "Slapback Echo")
         {
-            set("retuneSpeed", 0.5f);
-            set("humanize", 0.2f);
-            set("snapAmount", 0.85f);
 
             set("veqF1", 100.0f);
             set("veqG5", -1.0f);
@@ -1059,9 +1017,6 @@ private:
         else if (name == "Clean Vocal Chain")
         {
             // No effects, just EQ + comp + de-esser + limiter
-            set("retuneSpeed", 0.35f);
-            set("humanize", 0.3f);
-            set("snapAmount", 0.7f);
 
             set("veqF1", 80.0f);
             set("veqG6", -1.0f);
@@ -1081,7 +1036,6 @@ private:
         }
         else if (name == "Broadcast / Podcast")
         {
-            setBool("pitchActive", false);
 
             set("veqF1", 100.0f);
             set("veqF12", 16000.0f);
@@ -1105,14 +1059,14 @@ private:
         // === NEW TRAP PRESETS ===
         else if (name == "Trap Adlib Bright")
         {
-            set("retuneSpeed", 0.9f);
-            set("humanize", 0.05f);
-            set("snapAmount", 0.95f);
-            set("scaleType", 1.0f);
-
-            set("veqF1", 200.0f);
-            set("veqG8", 4.0f);
-            set("veqG11", 5.0f);
+            // Adlib — bright, punchy, fast compression, short reverb
+            set("veqF1", 200.0f);              // HP rumble
+            set("veqG7", 2.0f);            // clarity at 1.2k
+            set("veqG8", 4.0f);            // bite
+            set("veqG10", 3.0f);            // presence
+            set("veqG11", 5.0f);            // air
+            set("veqQ8", 2.5f);            // focused bite
+            set("veqQ11", 0.7f);           // wide air
 
             set("compThreshold", -26.0f);
             set("compRatio", 8.0f);
@@ -1142,15 +1096,13 @@ private:
         }
         else if (name == "Trap Mumble Smooth")
         {
-            set("retuneSpeed", 0.7f);
-            set("humanize", 0.2f);
-            set("snapAmount", 0.85f);
-            set("scaleType", 1.0f);
-
+            // Mumble rap — warm, rolled-off, smooth compression
             set("veqF1", 80.0f);
             set("veqF12", 15000.0f);
             set("veqG3", 2.5f);
+            set("veqG5", -1.5f);            // reduce boxiness
             set("veqG8", 1.0f);
+            set("veqQ3", 0.6f);             // wide warmth
 
             set("compThreshold", -20.0f);
             set("compRatio", 5.0f);
@@ -1168,6 +1120,12 @@ private:
             set("reverbLongMix", 0.1f);
             set("reverbDuck", 0.6f);
 
+            setBool("convActive", true);
+            set("convSize", 1.0f);
+            set("convDamping", 0.6f);
+            set("convMix", 0.1f);
+            setBool("convReverse", false);
+
             setBool("deEsserActive", true);
             set("deEsserThresh", -18.0f);
 
@@ -1178,14 +1136,14 @@ private:
         }
         else if (name == "Drill Raw Vocal")
         {
-            set("retuneSpeed", 0.6f);
-            set("humanize", 0.15f);
-            set("snapAmount", 0.75f);
-            set("scaleType", 1.0f);
-
+            // UK/NY Drill — hard, raw, aggressive, minimal reverb
             set("veqF1", 150.0f);
+            set("veqG4", -2.0f);            // cut mud
             set("veqG6", 2.5f);
             set("veqG8", 3.5f);
+            set("veqG10", 2.0f);            // presence
+            set("veqQ6", 2.0f);            // tight mid push
+            set("veqQ8", 2.5f);            // laser bite
 
             set("compThreshold", -28.0f);
             set("compRatio", 10.0f);
@@ -1215,15 +1173,16 @@ private:
         }
         else if (name == "Rage Beat Vocal")
         {
-            set("retuneSpeed", 0.85f);
-            set("humanize", 0.05f);
-            set("snapAmount", 1.0f);
-            set("scaleType", 1.0f);
-
+            // Rage/Hyperpop — max aggression, clipped, reverse convolver swell
             set("veqF1", 180.0f);
+            set("veqG5", -2.0f);            // scoop boxiness
             set("veqG6", 3.0f);
             set("veqG8", 4.5f);
+            set("veqG9", 3.0f);             // upper presence
             set("veqG11", 2.0f);
+            set("veqQ6", 2.5f);            // tight midrange push
+            set("veqQ8", 3.0f);            // needle-sharp bite
+            setBool("veqDyn8", true);       // dynamic bite — only when loud
 
             set("compThreshold", -30.0f);
             set("compRatio", 12.0f);
@@ -1247,6 +1206,12 @@ private:
             set("reverbShortMix", 0.1f);
             set("reverbDuck", 0.8f);
 
+            setBool("convActive", true);
+            set("convSize", 0.6f);
+            set("convDamping", 0.3f);
+            set("convMix", 0.18f);
+            setBool("convReverse", true);   // reverse swell before hits
+
             setBool("delayActive", true);
             set("delayTime", 120.0f);
             set("delayFeedback", 0.12f);
@@ -1257,10 +1222,6 @@ private:
         }
         else if (name == "808 Bass Vocal")
         {
-            set("retuneSpeed", 0.8f);
-            set("humanize", 0.1f);
-            set("snapAmount", 0.9f);
-            set("scaleType", 1.0f);
 
             set("veqF1", 60.0f);
             set("veqG3", 4.0f);
@@ -1294,9 +1255,6 @@ private:
         // === NEW R&B PRESETS ===
         else if (name == "R&B Falsetto Air")
         {
-            set("retuneSpeed", 0.35f);
-            set("humanize", 0.35f);
-            set("snapAmount", 0.7f);
 
             set("veqF1", 120.0f);
             set("veqG5", -1.0f);           // clean mids
@@ -1335,9 +1293,6 @@ private:
         }
         else if (name == "90s R&B Classic")
         {
-            set("retuneSpeed", 0.25f);
-            set("humanize", 0.4f);
-            set("snapAmount", 0.6f);
 
             set("veqF1", 60.0f);
             set("veqG3", 3.0f);
@@ -1377,9 +1332,6 @@ private:
         }
         else if (name == "Bedroom R&B")
         {
-            set("retuneSpeed", 0.45f);
-            set("humanize", 0.3f);
-            set("snapAmount", 0.75f);
 
             set("veqF1", 70.0f);
             set("veqG3", 2.0f);
@@ -1415,9 +1367,6 @@ private:
         // === NEW POP PRESETS ===
         else if (name == "Pop Ballad Lush")
         {
-            set("retuneSpeed", 0.4f);
-            set("humanize", 0.3f);
-            set("snapAmount", 0.75f);
 
             set("veqF1", 80.0f);
             set("veqG3", 1.5f);
@@ -1459,9 +1408,6 @@ private:
         }
         else if (name == "K-Pop Crystal")
         {
-            set("retuneSpeed", 0.7f);
-            set("humanize", 0.1f);
-            set("snapAmount", 0.9f);
 
             set("veqF1", 120.0f);
             set("veqG8", 3.5f);
@@ -1496,9 +1442,6 @@ private:
         }
         else if (name == "Pop Punk Grit")
         {
-            set("retuneSpeed", 0.35f);
-            set("humanize", 0.25f);
-            set("snapAmount", 0.65f);
 
             set("veqF1", 130.0f);
             set("veqG6", 2.5f);
@@ -1533,9 +1476,6 @@ private:
         // === NEW ROCK PRESETS ===
         else if (name == "Metal Scream")
         {
-            set("retuneSpeed", 0.15f);
-            set("humanize", 0.5f);
-            set("snapAmount", 0.4f);
 
             set("veqF1", 200.0f);
             set("veqG6", 4.0f);
@@ -1566,9 +1506,6 @@ private:
         }
         else if (name == "Indie Folk Natural")
         {
-            set("retuneSpeed", 0.15f);
-            set("humanize", 0.6f);
-            set("snapAmount", 0.4f);
 
             set("veqF1", 80.0f);
             set("veqG3", 1.5f);
@@ -1601,8 +1538,6 @@ private:
         // === NEW LO-FI PRESETS ===
         else if (name == "Vinyl Crackle Vox")
         {
-            set("retuneSpeed", 0.2f);
-            set("humanize", 0.5f);
 
             set("veqF1", 150.0f);
             set("veqF12", 10000.0f);
@@ -1635,9 +1570,6 @@ private:
         }
         else if (name == "Bitcrushed Glitch")
         {
-            set("retuneSpeed", 0.9f);
-            set("humanize", 0.0f);
-            set("snapAmount", 1.0f);
 
             set("veqF1", 200.0f);
             set("veqG8", 2.0f);
@@ -1671,9 +1603,6 @@ private:
         // === NEW CREATIVE PRESETS ===
         else if (name == "Underwater Dream")
         {
-            set("retuneSpeed", 0.5f);
-            set("humanize", 0.25f);
-            set("snapAmount", 0.7f);
 
             set("veqF1", 60.0f);
             set("veqF12", 8000.0f);
@@ -1716,9 +1645,6 @@ private:
         }
         else if (name == "Cathedral Choir")
         {
-            set("retuneSpeed", 0.3f);
-            set("humanize", 0.35f);
-            set("snapAmount", 0.8f);
 
             set("veqG3", 2.0f);
             set("veqG11", 2.5f);
@@ -1761,10 +1687,6 @@ private:
         // === GENRE-SPECIFIC PRESETS ===
         else if (name == "Gospel Powerful")
         {
-            set("retuneSpeed", 0.3f);
-            set("humanize", 0.35f);
-            set("snapAmount", 0.7f);
-            set("scaleType", 0.0f);
 
             set("veqF1", 80.0f);
             set("veqG3", 2.5f);
@@ -1803,10 +1725,6 @@ private:
         }
         else if (name == "Country Twang")
         {
-            set("retuneSpeed", 0.2f);
-            set("humanize", 0.45f);
-            set("snapAmount", 0.55f);
-            set("scaleType", 0.0f);
 
             set("veqF1", 100.0f);
             set("veqG3", 1.0f);
@@ -1844,10 +1762,6 @@ private:
         }
         else if (name == "Latin Reggaeton")
         {
-            set("retuneSpeed", 0.65f);
-            set("humanize", 0.15f);
-            set("snapAmount", 0.85f);
-            set("scaleType", 1.0f);
 
             set("veqF1", 100.0f);
             set("veqG3", 2.0f);
@@ -1886,10 +1800,6 @@ private:
         }
         else if (name == "Afrobeats Vocal")
         {
-            set("retuneSpeed", 0.5f);
-            set("humanize", 0.25f);
-            set("snapAmount", 0.75f);
-            set("scaleType", 0.0f);
 
             set("veqF1", 90.0f);
             set("veqG3", 1.5f);
@@ -1928,9 +1838,6 @@ private:
         }
         else if (name == "EDM Festival Drop")
         {
-            set("retuneSpeed", 0.85f);
-            set("humanize", 0.05f);
-            set("snapAmount", 0.95f);
 
             set("veqF1", 150.0f);
             set("veqG8", 3.0f);
@@ -1974,7 +1881,6 @@ private:
         // === NEW UTILITY PRESETS ===
         else if (name == "Voiceover Warmth")
         {
-            setBool("pitchActive", false);
 
             set("veqF1", 80.0f);
             set("veqF12", 14000.0f);
@@ -2001,9 +1907,6 @@ private:
         }
         else if (name == "Live Performance")
         {
-            set("retuneSpeed", 0.6f);
-            set("humanize", 0.2f);
-            set("snapAmount", 0.8f);
 
             set("veqF1", 120.0f);
             set("veqG6", -1.5f);
@@ -2027,9 +1930,6 @@ private:
         }
         else if (name == "Mastered Vocal Bus")
         {
-            set("retuneSpeed", 0.4f);
-            set("humanize", 0.25f);
-            set("snapAmount", 0.75f);
 
             set("veqF1", 80.0f);
             set("veqG3", 1.0f);
@@ -2064,15 +1964,7 @@ private:
         else if (name == "Drocett Smooth Melodies")
         {
             // Smooth melodic autotune — silky R&B/trap fusion, warm + wide
-            set("retuneSpeed", 0.6f);
-            set("humanize", 0.2f);
-            set("snapAmount", 0.85f);
-            set("scaleType", 1.0f);           // minor for melodic feel
 
-            setBool("formantActive", true);
-            set("formantShift", -1.0f);        // warm vocal character
-            set("formantMix", 0.5f);
-            set("formantSmooth", 0.5f);
 
             set("veqF1", 80.0f);
             set("veqG3", 2.0f);            // chest warmth
@@ -2125,10 +2017,6 @@ private:
         else if (name == "Drocett Trap Soul")
         {
             // Heavier autotune, trap soul bounce — thicker compression, tape warmth
-            set("retuneSpeed", 0.75f);
-            set("humanize", 0.12f);
-            set("snapAmount", 0.92f);
-            set("scaleType", 1.0f);
 
             set("veqF1", 100.0f);
             set("veqG3", 1.5f);
@@ -2172,10 +2060,6 @@ private:
         else if (name == "Drocett Late Night")
         {
             // Dark, intimate late-night vibe — subdued highs, lush reverb, subtle autotune
-            set("retuneSpeed", 0.45f);
-            set("humanize", 0.3f);
-            set("snapAmount", 0.7f);
-            set("scaleType", 1.0f);
 
             set("veqF1", 70.0f);
             set("veqF12", 13000.0f);            // roll off for dark vibe
@@ -2214,9 +2098,6 @@ private:
         else if (name == "Drocett Falsetto Vibe")
         {
             // Airy falsetto — open highs, crystal reverb, gentle correction
-            set("retuneSpeed", 0.5f);
-            set("humanize", 0.25f);
-            set("snapAmount", 0.8f);
 
             set("veqF1", 130.0f);
             set("veqG8", 2.0f);
@@ -2259,9 +2140,6 @@ private:
         else if (name == "Nu Rock Dry Scream")
         {
             // Bone-dry aggressive rock scream — no reverb, no delay, pure grit
-            set("retuneSpeed", 0.1f);         // minimal correction
-            set("humanize", 0.6f);            // raw human feel
-            set("snapAmount", 0.3f);
 
             set("veqF1", 180.0f);              // tight low cut
             set("veqF12", 16000.0f);
@@ -2292,9 +2170,6 @@ private:
         else if (name == "Nu Rock Raw Edge")
         {
             // Raw rock with just a touch of room — post-punk energy
-            set("retuneSpeed", 0.15f);
-            set("humanize", 0.5f);
-            set("snapAmount", 0.35f);
 
             set("veqF1", 160.0f);
             set("veqG6", 2.5f);
@@ -2326,9 +2201,6 @@ private:
         else if (name == "Nu Rock Grit & Growl")
         {
             // Maximum saturation growl — tape + transformer stacked
-            set("retuneSpeed", 0.12f);
-            set("humanize", 0.55f);
-            set("snapAmount", 0.3f);
 
             set("veqF1", 200.0f);
             set("veqG3", -1.0f);
@@ -2372,23 +2244,14 @@ private:
     void resetToDefaults (const std::function<void(const juce::String&, float)>& set,
                           const std::function<void(const juce::String&, bool)>& setBool)
     {
-        // Pitch
-        setBool("pitchActive", true);
-        set("retuneSpeed", 0.5f);
-        set("humanize", 0.2f);
-        set("snapAmount", 0.8f);
-        set("pitchSustain", 0.5f);
-        set("detune", 440.0f);
-        set("rootNote", 0.0f);
-        set("scaleType", 0.0f);
-        setBool("noteStabilizer", true);
-        setBool("formantPreserve", true);
-
-        // Formant Shifter
-        setBool("formantActive", false);
-        set("formantShift", 0.0f);
-        set("formantMix", 1.0f);
-        set("formantSmooth", 0.3f);
+        // Noise Gate
+        setBool("gateActive", false);
+        set("gateThreshold", -40.0f);
+        set("gateRatio", 100.0f);
+        set("gateAttack", 0.1f);
+        set("gateHold", 50.0f);
+        set("gateRelease", 100.0f);
+        set("gateRange", -80.0f);
 
         // Visual EQ (12-band)
         setBool("veqActive", true);
@@ -2401,6 +2264,7 @@ private:
                 set("veqG" + si, 0.0f);
                 set("veqQ" + si, 1.0f);
                 set("veqT" + si, (i == 0) ? 4.0f : (i == 11) ? 3.0f : 0.0f);
+                setBool("veqDyn" + si, false);
             }
         }
 
@@ -2412,6 +2276,7 @@ private:
         set("compRelease", 50.0f);
         set("compMakeup", 0.0f);
         set("compKnee", 6.0f);
+        set("compOutputGain", 0.0f);
         setBool("compAutoGain", true);
         setBool("autoLevel", false);
         set("autoLevelTarget", -14.0f);
@@ -2428,6 +2293,7 @@ private:
             set("mbRel"    + sb, 50.0f);
             set("mbMakeup" + sb, 0.0f);
         }
+        set("mbOutputGain", 0.0f);
 
         // De-Esser
         setBool("deEsserActive", true);
@@ -2472,6 +2338,14 @@ private:
         set("reverbDuck", 0.5f);
         set("reverbPostEQ", 8000.0f);
 
+        // Convolver Reverb
+        setBool("convActive", false);
+        set("convSize", 1.5f);
+        set("convDamping", 0.5f);
+        set("convMix", 0.3f);
+        set("convPreDelay", 0.0f);
+        setBool("convReverse", false);
+
         // Delay
         setBool("delayActive", false);
         set("delayTime", 250.0f);
@@ -2492,6 +2366,7 @@ private:
         setBool("limiterActive", true);
         set("limiterCeiling", -0.3f);
         set("limiterRelease", 50.0f);
+        set("limiterOutputGain", 0.0f);
 
         // Master
         set("inputGain", 0.0f);

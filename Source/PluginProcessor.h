@@ -1,9 +1,9 @@
 #pragma once
 
+#include "ConvolverReverb.h"
 #include "DeEsser.h"
 #include "LoFiFilter.h"
 #include "OutputLimiter.h"
-#include "PitchEngine.h"
 #include "SaturationEngine.h"
 #include "StereoWidth.h"
 #include "TapeEmulation.h"
@@ -27,14 +27,14 @@ public:
     // Module IDs for the reorderable effect chain
     enum ModuleID
     {
-        kGate = 0, kPitch, kEQ, kComp, kMBComp, kDeEss,
-        kSat, kTape, kWidth, kDoubler, kReverb, kDelay, kLoFi, kLimiter,
+        kGate = 0, kEQ, kComp, kMBComp, kDeEss,
+        kSat, kTape, kWidth, kDoubler, kReverb, kConvolver, kDelay, kLoFi, kLimiter,
         kNumModules
     };
 
     static constexpr const char* kModuleNames[] = {
-        "GATE", "TUNE", "EQ", "COMP", "MB", "DE-ESS",
-        "SAT", "TAPE", "WIDTH", "DBL", "VERB", "DELAY", "LO-FI", "LIMIT"
+        "GATE", "EQ", "COMP", "MB", "DE-ESS",
+        "SAT", "TAPE", "WIDTH", "DBL", "VERB", "CONV", "DELAY", "LO-FI", "LIMIT"
     };
 
     HumHouseVocalsProcessor();
@@ -70,24 +70,6 @@ public:
     float getUIScale() const { return uiScale.load(); }
     void  setUIScale (float s) { uiScale.store(juce::jlimit(0.5f, 2.0f, s)); }
 
-    // Pitch feedback for the heatmap visualizer
-    float getDetectedPitchHz() const { return detectedPitchHz.load(); }
-    float getTargetPitchHz() const { return targetPitchHz.load(); }
-    float getCorrectionCents() const { return correctionCents.load(); }
-
-    // Current detected note name for display
-    juce::String getDetectedNoteName() const
-    {
-        float hz = detectedPitchHz.load();
-        if (hz < 30.0f) return "--";
-        static const char* names[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-        float midi = 69.0f + 12.0f * std::log2(hz / 440.0f);
-        int note = static_cast<int>(std::round(midi));
-        int octave = (note / 12) - 1;
-        int pc = note % 12;
-        if (pc < 0) pc += 12;
-        return juce::String(names[pc]) + juce::String(octave);
-    }
 
     // Multiband compressor gain reduction feedback for UI
     float getMBGainReduction (int band) const { return multibandComp.getGainReduction(band); }
@@ -129,13 +111,12 @@ private:
     // Effect chain order (default: Gate → Pitch → EQ → ... → Limiter)
     mutable juce::SpinLock chainLock;
     std::array<int, kNumModules> chainOrder = {
-        kGate, kPitch, kEQ, kComp, kMBComp, kDeEss,
-        kSat, kTape, kWidth, kDoubler, kReverb, kDelay, kLoFi, kLimiter
+        kGate, kEQ, kComp, kMBComp, kDeEss,
+        kSat, kTape, kWidth, kDoubler, kReverb, kConvolver, kDelay, kLoFi, kLimiter
     };
 
     // DSP modules
     humvocal::NoiseGate         noiseGate;
-    humvocal::PitchEngine       pitchEngine;
     humvocal::VisualEQ          visualEQ;
     humvocal::VocalCompressor   compressor;
     humvocal::MultibandCompressor multibandComp;
@@ -145,22 +126,13 @@ private:
     humvocal::StereoWidth       stereoWidth;
     humvocal::VocalDoubler      doubler;
     humvocal::VocalReverb       reverb;
+    humvocal::ConvolverReverb   convolverReverb;
     humvocal::VocalDelay        delay;
     humvocal::LoFiFilter        lofiFilter;
     humvocal::OutputLimiter     limiter;
 
     // Pre-allocated dry buffer for dry/wet mix
     juce::AudioBuffer<float> dryBuffer;
-
-    // Dry path delay line — compensates for pitch engine latency
-    juce::AudioBuffer<float> dryDelayBuffer;
-    int dryDelayWritePos = 0;
-    int dryDelaySize = 0;
-
-    // Atomic pitch feedback
-    std::atomic<float> detectedPitchHz { 0.0f };
-    std::atomic<float> targetPitchHz   { 0.0f };
-    std::atomic<float> correctionCents { 0.0f };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HumHouseVocalsProcessor)
 };
