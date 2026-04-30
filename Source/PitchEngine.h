@@ -102,7 +102,7 @@ public:
         {
             float stableHz = detectedHz;
 
-            // Note stabilizer
+            // Note stabilizer — locks onto a note and holds it
             if (stabilizer)
             {
                 detectedHistory[static_cast<size_t>(histIdx)] = detectedHz;
@@ -118,7 +118,10 @@ public:
                 {
                     avg /= static_cast<float>(count);
                     float centsDiff = 1200.0f * std::log2(detectedHz / avg);
-                    if (std::abs(centsDiff) < 20.0f * pitchSustain)
+                    // Wider lock zone: holds note more aggressively
+                    // pitchSustain 0-1 maps to 30-80 cent lock zone
+                    float lockZone = 30.0f + pitchSustain * 50.0f;
+                    if (std::abs(centsDiff) < lockZone)
                         stableHz = avg;
                 }
             }
@@ -135,8 +138,8 @@ public:
             corrCents *= (1.0f - humanize);
             corrCents *= snapAmount;
 
-            // Only shift if correction is meaningful (> 2 cents)
-            if (std::abs(corrCents) > 2.0f)
+            // Apply correction if above noise floor (0.5 cents)
+            if (std::abs(corrCents) > 0.5f)
                 newTargetRatio = std::pow(2.0, static_cast<double>(corrCents) / 1200.0);
         }
         else
@@ -146,7 +149,10 @@ public:
         }
 
         // Smooth ratio change (retune speed controls smoothing)
-        double smoothCoeff = 1.0 - std::exp(-1.0 / (sr * (0.002 + (1.0 - static_cast<double>(retuneSpeed)) * 0.15)));
+        // Speed 0.0 → 50ms convergence (natural), Speed 1.0 → 0.5ms (robotic/instant)
+        // Using exponential mapping for musical feel
+        double timeConstant = 0.0005 + (1.0 - static_cast<double>(retuneSpeed)) * (1.0 - static_cast<double>(retuneSpeed)) * 0.05;
+        double smoothCoeff = 1.0 - std::exp(-1.0 / (sr * timeConstant));
         targetRatio = newTargetRatio;
 
         // Apply pitch shift — process all channels simultaneously per sample
@@ -204,8 +210,8 @@ public:
     }
 
 private:
-    static constexpr int kHistorySize = 8;
-    static constexpr int kYinSkipBlocks = 4;
+    static constexpr int kHistorySize = 12;
+    static constexpr int kYinSkipBlocks = 2;
     static constexpr int kMaxChannels = 2;
 
     double sr = 44100.0;
