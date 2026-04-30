@@ -10,7 +10,9 @@
 #include "VocalCompressor.h"
 #include "VocalDelay.h"
 #include "VocalDoubler.h"
-#include "VocalEQ.h"
+#include "VisualEQ.h"
+#include "FormantShifter.h"
+#include "MultibandCompressor.h"
 #include "VocalReverb.h"
 #include "PresetManager.h"
 
@@ -59,6 +61,12 @@ public:
     float getTargetPitchHz() const { return targetPitchHz.load(); }
     float getCorrectionCents() const { return correctionCents.load(); }
 
+    // Multiband compressor gain reduction feedback for UI
+    float getMBGainReduction (int band) const { return multibandComp.getGainReduction(band); }
+
+    // Visual EQ magnitude response for UI
+    float getEQMagnitudeAtFrequency (double freq) const { return visualEQ.getMagnitudeAtFrequency(freq); }
+
 private:
     juce::AudioProcessorValueTreeState apvts;
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -70,8 +78,10 @@ private:
 
     // DSP modules — signal chain order
     humvocal::PitchEngine       pitchEngine;
-    humvocal::VocalEQ           vocalEQ;
+    humvocal::FormantShifter    formantShifter;
+    humvocal::VisualEQ          visualEQ;
     humvocal::VocalCompressor   compressor;
+    humvocal::MultibandCompressor multibandComp;
     humvocal::DeEsser           deEsser;
     humvocal::SaturationEngine  saturation;
     humvocal::TapeEmulation     tapeEmulation;

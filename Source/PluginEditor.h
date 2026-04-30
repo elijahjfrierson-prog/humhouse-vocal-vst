@@ -79,10 +79,35 @@ private:
 
     PitchHeatMap pitchHeatMap;
 
+    // Visual EQ display component
+    class EQCurveDisplay : public juce::Component
+    {
+    public:
+        EQCurveDisplay (HumHouseVocalsProcessor& p) : proc (p) {}
+        void paint (juce::Graphics& g) override;
+    private:
+        HumHouseVocalsProcessor& proc;
+    };
+
+    // Multiband compressor meter display
+    class MBMeterDisplay : public juce::Component
+    {
+    public:
+        MBMeterDisplay (HumHouseVocalsProcessor& p) : proc (p) {}
+        void paint (juce::Graphics& g) override;
+    private:
+        HumHouseVocalsProcessor& proc;
+    };
+
+    EQCurveDisplay eqCurveDisplay;
+    MBMeterDisplay mbMeterDisplay;
+
     // Module strips
     ModuleStrip pitchStrip    { "PITCH" };
-    ModuleStrip eqStrip       { "EQ" };
+    ModuleStrip formantStrip  { "FORMANT" };
+    ModuleStrip eqStrip       { "VISUAL EQ" };
     ModuleStrip compStrip     { "COMP" };
+    ModuleStrip mbCompStrip   { "MULTIBAND" };
     ModuleStrip deEsserStrip  { "DE-ESS" };
     ModuleStrip satStrip      { "SATURATE" };
     ModuleStrip tapeStrip     { "TAPE" };

@@ -327,10 +327,19 @@ private:
             set("scaleType", 1.0f);           // minor
             setBool("noteStabilizer", true);
 
-            set("eqHP", 120.0f);              // cut rumble
-            set("eqBand2G", 2.0f);            // presence boost
-            set("eqBand3G", 3.0f);            // high-mid bite
-            set("eqBand4G", 2.5f);            // air
+            set("veqF1", 120.0f);              // cut rumble
+            set("veqG4", -2.0f);           // cut mud at 300Hz
+            set("veqG6", 2.0f);            // presence boost
+            set("veqG8", 3.0f);            // high-mid bite
+            set("veqG9", 1.5f);            // presence sparkle 4kHz
+            set("veqG11", 2.5f);            // air
+
+            setBool("mbActive", true);
+            set("mbThresh1", -24.0f);       // tame body
+            set("mbRatio1", 6.0f);
+            set("mbThresh3", -20.0f);       // control clarity
+            set("mbRatio3", 3.0f);
+            set("mbMakeup5", 2.0f);         // lift air band
 
             set("compThreshold", -22.0f);     // aggressive compression
             set("compRatio", 6.0f);           // high ratio
@@ -368,10 +377,10 @@ private:
             set("snapAmount", 0.9f);
             set("scaleType", 1.0f);           // minor
 
-            set("eqHP", 100.0f);
-            set("eqBand2G", 1.5f);
-            set("eqBand3G", 2.0f);
-            set("eqBand4G", 3.0f);            // more air
+            set("veqF1", 100.0f);
+            set("veqG6", 1.5f);
+            set("veqG8", 2.0f);
+            set("veqG11", 3.0f);            // more air
 
             set("compThreshold", -20.0f);
             set("compRatio", 4.0f);
@@ -407,10 +416,10 @@ private:
             set("snapAmount", 0.95f);
             set("scaleType", 1.0f);
 
-            set("eqHP", 80.0f);
-            set("eqLP", 14000.0f);            // roll off highs for dark tone
-            set("eqBand1G", 2.0f);            // low warmth
-            set("eqBand3G", -1.5f);           // scoop high-mids
+            set("veqF1", 80.0f);
+            set("veqF12", 14000.0f);            // roll off highs for dark tone
+            set("veqG3", 2.0f);            // low warmth
+            set("veqG8", -1.5f);           // scoop high-mids
 
             set("compThreshold", -24.0f);
             set("compRatio", 5.0f);
@@ -442,11 +451,17 @@ private:
             set("snapAmount", 0.7f);
             set("scaleType", 0.0f);           // major
 
-            set("eqHP", 70.0f);              // keep chest resonance
-            set("eqBand1G", 1.5f);            // warmth
-            set("eqBand2G", -1.0f);           // clean low-mids
-            set("eqBand3G", 1.5f);            // presence
-            set("eqBand4G", 2.0f);            // silk/air
+            setBool("formantActive", true);
+            set("formantShift", -0.5f);        // subtle warm down-shift
+            set("formantMix", 0.4f);
+
+            set("veqF1", 70.0f);              // keep chest resonance
+            set("veqG3", 1.5f);            // warmth
+            set("veqG5", -1.5f);           // cut 500Hz boxiness
+            set("veqG6", -1.0f);           // clean low-mids
+            set("veqG8", 1.5f);            // presence
+            set("veqG10", 1.0f);           // sparkle at 6kHz
+            set("veqG11", 2.0f);            // silk/air
 
             set("compThreshold", -16.0f);
             set("compRatio", 3.0f);
@@ -454,6 +469,11 @@ private:
             set("compRelease", 80.0f);
             set("compKnee", 10.0f);           // soft knee
             set("thdMode", 1.0f);             // soft warmth
+
+            setBool("mbActive", true);
+            set("mbThresh2", -22.0f);          // tame mud band
+            set("mbRatio2", 3.0f);
+            set("mbMakeup4", 1.5f);            // lift presence
 
             setBool("satActive", true);
             set("satDrive", 0.15f);
@@ -476,11 +496,11 @@ private:
             set("humanize", 0.4f);
             set("snapAmount", 0.6f);
 
-            set("eqHP", 60.0f);
-            set("eqBand1G", 2.5f);            // chest warmth
-            set("eqBand2G", -1.5f);           // mud cut
-            set("eqBand3G", 1.0f);
-            set("eqBand4G", 1.5f);
+            set("veqF1", 60.0f);
+            set("veqG3", 2.5f);            // chest warmth
+            set("veqG6", -1.5f);           // mud cut
+            set("veqG8", 1.0f);
+            set("veqG11", 1.5f);
 
             set("compThreshold", -14.0f);
             set("compRatio", 2.5f);
@@ -508,10 +528,10 @@ private:
             set("humanize", 0.5f);
             set("snapAmount", 0.5f);
 
-            set("eqHP", 80.0f);
-            set("eqBand1G", 3.0f);
-            set("eqBand2G", -2.0f);
-            set("eqBand4G", -1.0f);           // roll off air for vintage
+            set("veqF1", 80.0f);
+            set("veqG3", 3.0f);
+            set("veqG6", -2.0f);
+            set("veqG11", -1.0f);           // roll off air for vintage
 
             set("compThreshold", -18.0f);
             set("compRatio", 3.0f);
@@ -540,10 +560,10 @@ private:
             set("snapAmount", 0.85f);
             set("scaleType", 0.0f);
 
-            set("eqHP", 100.0f);
-            set("eqBand2G", -1.0f);           // clean mids
-            set("eqBand3G", 2.5f);            // presence for clarity
-            set("eqBand4G", 3.0f);            // sparkle/air
+            set("veqF1", 100.0f);
+            set("veqG6", -1.0f);           // clean mids
+            set("veqG8", 2.5f);            // presence for clarity
+            set("veqG11", 3.0f);            // sparkle/air
 
             set("compThreshold", -20.0f);
             set("compRatio", 4.0f);
@@ -579,9 +599,9 @@ private:
             set("humanize", 0.25f);
             set("snapAmount", 0.8f);
 
-            set("eqHP", 110.0f);
-            set("eqBand3G", 3.0f);
-            set("eqBand4G", 4.0f);            // lots of air
+            set("veqF1", 110.0f);
+            set("veqG8", 3.0f);
+            set("veqG11", 4.0f);            // lots of air
 
             set("compThreshold", -18.0f);
             set("compRatio", 3.5f);
@@ -606,10 +626,10 @@ private:
             set("humanize", 0.3f);
             set("snapAmount", 0.6f);
 
-            set("eqHP", 150.0f);              // tight low cut
-            set("eqBand2G", 2.0f);            // mid grit
-            set("eqBand3G", 3.0f);            // bite
-            set("eqBand4G", 1.0f);
+            set("veqF1", 150.0f);              // tight low cut
+            set("veqG6", 2.0f);            // mid grit
+            set("veqG8", 3.0f);            // bite
+            set("veqG11", 1.0f);
 
             set("compThreshold", -24.0f);
             set("compRatio", 8.0f);           // heavy compression
@@ -641,10 +661,10 @@ private:
             set("humanize", 0.4f);
             set("snapAmount", 0.5f);
 
-            set("eqHP", 100.0f);
-            set("eqBand1G", 2.0f);
-            set("eqBand2G", 1.0f);
-            set("eqBand3G", 1.5f);
+            set("veqF1", 100.0f);
+            set("veqG3", 2.0f);
+            set("veqG6", 1.0f);
+            set("veqG8", 1.5f);
 
             set("compThreshold", -18.0f);
             set("compRatio", 4.0f);
@@ -670,8 +690,8 @@ private:
             set("retuneSpeed", 0.2f);
             set("humanize", 0.5f);
 
-            set("eqHP", 200.0f);
-            set("eqLP", 8000.0f);
+            set("veqF1", 200.0f);
+            set("veqF12", 8000.0f);
 
             set("compThreshold", -20.0f);
             set("compRatio", 4.0f);
@@ -696,8 +716,8 @@ private:
         {
             setBool("pitchActive", false);
 
-            set("eqHP", 400.0f);
-            set("eqLP", 3500.0f);
+            set("veqF1", 400.0f);
+            set("veqF12", 3500.0f);
 
             set("compThreshold", -18.0f);
             set("compRatio", 6.0f);
@@ -719,9 +739,9 @@ private:
             set("retuneSpeed", 0.15f);
             set("humanize", 0.5f);
 
-            set("eqHP", 80.0f);
-            set("eqLP", 12000.0f);
-            set("eqBand1G", 3.0f);
+            set("veqF1", 80.0f);
+            set("veqF12", 12000.0f);
+            set("veqG3", 3.0f);
 
             set("compThreshold", -16.0f);
             set("compRatio", 3.0f);
@@ -746,6 +766,14 @@ private:
             set("pitchSustain", 0.1f);
             setBool("noteStabilizer", true);
 
+            setBool("formantActive", true);
+            set("formantShift", 3.0f);         // slight up-shift for robot effect
+            set("formantMix", 0.6f);
+
+            set("veqG4", -3.0f);           // cut 300Hz mud
+            set("veqG8", 4.0f);            // aggressive presence
+            set("veqG9", 2.0f);            // clarity
+
             set("compThreshold", -22.0f);
             set("compRatio", 5.0f);
             set("compAttack", 3.0f);
@@ -760,7 +788,13 @@ private:
             set("retuneSpeed", 0.4f);
             set("humanize", 0.3f);
 
-            set("eqBand4G", 3.0f);
+            setBool("formantActive", true);
+            set("formantShift", 2.0f);         // airy up-shift
+            set("formantMix", 0.35f);
+
+            set("veqG8", 1.5f);            // presence
+            set("veqG10", 2.0f);           // sparkle
+            set("veqG11", 3.0f);
 
             set("compThreshold", -16.0f);
             set("compRatio", 2.5f);
@@ -847,10 +881,10 @@ private:
             set("humanize", 0.3f);
             set("snapAmount", 0.7f);
 
-            set("eqHP", 80.0f);
-            set("eqBand2G", -1.0f);
-            set("eqBand3G", 1.5f);
-            set("eqBand4G", 2.0f);
+            set("veqF1", 80.0f);
+            set("veqG6", -1.0f);
+            set("veqG8", 1.5f);
+            set("veqG11", 2.0f);
 
             set("compThreshold", -18.0f);
             set("compRatio", 3.0f);
@@ -865,10 +899,10 @@ private:
         {
             setBool("pitchActive", false);
 
-            set("eqHP", 100.0f);
-            set("eqLP", 16000.0f);
-            set("eqBand2G", -2.0f);
-            set("eqBand3G", 2.0f);
+            set("veqF1", 100.0f);
+            set("veqF12", 16000.0f);
+            set("veqG6", -2.0f);
+            set("veqG8", 2.0f);
 
             set("compThreshold", -22.0f);
             set("compRatio", 5.0f);
@@ -892,9 +926,9 @@ private:
             set("snapAmount", 0.95f);
             set("scaleType", 1.0f);
 
-            set("eqHP", 200.0f);
-            set("eqBand3G", 4.0f);
-            set("eqBand4G", 5.0f);
+            set("veqF1", 200.0f);
+            set("veqG8", 4.0f);
+            set("veqG11", 5.0f);
 
             set("compThreshold", -26.0f);
             set("compRatio", 8.0f);
@@ -920,10 +954,10 @@ private:
             set("snapAmount", 0.85f);
             set("scaleType", 1.0f);
 
-            set("eqHP", 80.0f);
-            set("eqLP", 15000.0f);
-            set("eqBand1G", 2.5f);
-            set("eqBand3G", 1.0f);
+            set("veqF1", 80.0f);
+            set("veqF12", 15000.0f);
+            set("veqG3", 2.5f);
+            set("veqG8", 1.0f);
 
             set("compThreshold", -20.0f);
             set("compRatio", 5.0f);
@@ -951,9 +985,9 @@ private:
             set("snapAmount", 0.75f);
             set("scaleType", 1.0f);
 
-            set("eqHP", 150.0f);
-            set("eqBand2G", 2.5f);
-            set("eqBand3G", 3.5f);
+            set("veqF1", 150.0f);
+            set("veqG6", 2.5f);
+            set("veqG8", 3.5f);
 
             set("compThreshold", -28.0f);
             set("compRatio", 10.0f);
@@ -982,10 +1016,10 @@ private:
             set("snapAmount", 1.0f);
             set("scaleType", 1.0f);
 
-            set("eqHP", 180.0f);
-            set("eqBand2G", 3.0f);
-            set("eqBand3G", 4.5f);
-            set("eqBand4G", 2.0f);
+            set("veqF1", 180.0f);
+            set("veqG6", 3.0f);
+            set("veqG8", 4.5f);
+            set("veqG11", 2.0f);
 
             set("compThreshold", -30.0f);
             set("compRatio", 12.0f);
@@ -1013,11 +1047,11 @@ private:
             set("snapAmount", 0.9f);
             set("scaleType", 1.0f);
 
-            set("eqHP", 60.0f);
-            set("eqBand1G", 4.0f);
-            set("eqBand2G", 1.0f);
-            set("eqBand3G", -1.0f);
-            set("eqLP", 12000.0f);
+            set("veqF1", 60.0f);
+            set("veqG3", 4.0f);
+            set("veqG6", 1.0f);
+            set("veqG8", -1.0f);
+            set("veqF12", 12000.0f);
 
             set("compThreshold", -22.0f);
             set("compRatio", 6.0f);
@@ -1040,9 +1074,9 @@ private:
             set("humanize", 0.35f);
             set("snapAmount", 0.7f);
 
-            set("eqHP", 120.0f);
-            set("eqBand3G", 2.0f);
-            set("eqBand4G", 4.5f);
+            set("veqF1", 120.0f);
+            set("veqG8", 2.0f);
+            set("veqG11", 4.5f);
 
             set("compThreshold", -14.0f);
             set("compRatio", 2.5f);
@@ -1068,11 +1102,11 @@ private:
             set("humanize", 0.4f);
             set("snapAmount", 0.6f);
 
-            set("eqHP", 60.0f);
-            set("eqBand1G", 3.0f);
-            set("eqBand2G", -1.5f);
-            set("eqBand3G", 2.0f);
-            set("eqLP", 14000.0f);
+            set("veqF1", 60.0f);
+            set("veqG3", 3.0f);
+            set("veqG6", -1.5f);
+            set("veqG8", 2.0f);
+            set("veqF12", 14000.0f);
 
             set("compThreshold", -16.0f);
             set("compRatio", 3.0f);
@@ -1105,9 +1139,9 @@ private:
             set("humanize", 0.3f);
             set("snapAmount", 0.75f);
 
-            set("eqHP", 70.0f);
-            set("eqBand1G", 2.0f);
-            set("eqBand4G", 2.5f);
+            set("veqF1", 70.0f);
+            set("veqG3", 2.0f);
+            set("veqG11", 2.5f);
 
             set("compThreshold", -15.0f);
             set("compRatio", 2.5f);
@@ -1138,10 +1172,10 @@ private:
             set("humanize", 0.3f);
             set("snapAmount", 0.75f);
 
-            set("eqHP", 80.0f);
-            set("eqBand1G", 1.5f);
-            set("eqBand3G", 2.0f);
-            set("eqBand4G", 2.5f);
+            set("veqF1", 80.0f);
+            set("veqG3", 1.5f);
+            set("veqG8", 2.0f);
+            set("veqG11", 2.5f);
 
             set("compThreshold", -16.0f);
             set("compRatio", 3.0f);
@@ -1169,9 +1203,9 @@ private:
             set("humanize", 0.1f);
             set("snapAmount", 0.9f);
 
-            set("eqHP", 120.0f);
-            set("eqBand3G", 3.5f);
-            set("eqBand4G", 5.0f);
+            set("veqF1", 120.0f);
+            set("veqG8", 3.5f);
+            set("veqG11", 5.0f);
 
             set("compThreshold", -20.0f);
             set("compRatio", 4.5f);
@@ -1199,10 +1233,10 @@ private:
             set("humanize", 0.25f);
             set("snapAmount", 0.65f);
 
-            set("eqHP", 130.0f);
-            set("eqBand2G", 2.5f);
-            set("eqBand3G", 3.0f);
-            set("eqBand4G", 1.5f);
+            set("veqF1", 130.0f);
+            set("veqG6", 2.5f);
+            set("veqG8", 3.0f);
+            set("veqG11", 1.5f);
 
             set("compThreshold", -24.0f);
             set("compRatio", 7.0f);
@@ -1230,10 +1264,10 @@ private:
             set("humanize", 0.5f);
             set("snapAmount", 0.4f);
 
-            set("eqHP", 200.0f);
-            set("eqBand2G", 4.0f);
-            set("eqBand3G", 5.0f);
-            set("eqBand4G", -1.0f);
+            set("veqF1", 200.0f);
+            set("veqG6", 4.0f);
+            set("veqG8", 5.0f);
+            set("veqG11", -1.0f);
 
             set("compThreshold", -30.0f);
             set("compRatio", 15.0f);
@@ -1261,10 +1295,10 @@ private:
             set("humanize", 0.6f);
             set("snapAmount", 0.4f);
 
-            set("eqHP", 80.0f);
-            set("eqBand1G", 1.5f);
-            set("eqBand3G", 1.0f);
-            set("eqBand4G", 1.5f);
+            set("veqF1", 80.0f);
+            set("veqG3", 1.5f);
+            set("veqG8", 1.0f);
+            set("veqG11", 1.5f);
 
             set("compThreshold", -14.0f);
             set("compRatio", 2.0f);
@@ -1281,10 +1315,10 @@ private:
             set("retuneSpeed", 0.2f);
             set("humanize", 0.5f);
 
-            set("eqHP", 150.0f);
-            set("eqLP", 10000.0f);
-            set("eqBand1G", 3.0f);
-            set("eqBand4G", -2.0f);
+            set("veqF1", 150.0f);
+            set("veqF12", 10000.0f);
+            set("veqG3", 3.0f);
+            set("veqG11", -2.0f);
 
             set("compThreshold", -18.0f);
             set("compRatio", 3.5f);
@@ -1311,8 +1345,8 @@ private:
             set("humanize", 0.0f);
             set("snapAmount", 1.0f);
 
-            set("eqHP", 200.0f);
-            set("eqBand3G", 2.0f);
+            set("veqF1", 200.0f);
+            set("veqG8", 2.0f);
 
             set("compThreshold", -24.0f);
             set("compRatio", 8.0f);
@@ -1342,11 +1376,11 @@ private:
             set("humanize", 0.25f);
             set("snapAmount", 0.7f);
 
-            set("eqHP", 60.0f);
-            set("eqLP", 8000.0f);
-            set("eqBand1G", 3.0f);
-            set("eqBand3G", -2.0f);
-            set("eqBand4G", -3.0f);
+            set("veqF1", 60.0f);
+            set("veqF12", 8000.0f);
+            set("veqG3", 3.0f);
+            set("veqG8", -2.0f);
+            set("veqG11", -3.0f);
 
             set("compThreshold", -16.0f);
             set("compRatio", 2.5f);
@@ -1377,8 +1411,8 @@ private:
             set("humanize", 0.35f);
             set("snapAmount", 0.8f);
 
-            set("eqBand1G", 2.0f);
-            set("eqBand4G", 2.5f);
+            set("veqG3", 2.0f);
+            set("veqG11", 2.5f);
 
             set("compThreshold", -14.0f);
             set("compRatio", 2.0f);
@@ -1413,11 +1447,11 @@ private:
             set("snapAmount", 0.7f);
             set("scaleType", 0.0f);
 
-            set("eqHP", 80.0f);
-            set("eqBand1G", 2.5f);
-            set("eqBand2G", -1.0f);
-            set("eqBand3G", 3.0f);
-            set("eqBand4G", 2.0f);
+            set("veqF1", 80.0f);
+            set("veqG3", 2.5f);
+            set("veqG6", -1.0f);
+            set("veqG8", 3.0f);
+            set("veqG11", 2.0f);
 
             set("compThreshold", -20.0f);
             set("compRatio", 4.0f);
@@ -1450,11 +1484,11 @@ private:
             set("snapAmount", 0.55f);
             set("scaleType", 0.0f);
 
-            set("eqHP", 100.0f);
-            set("eqBand1G", 1.0f);
-            set("eqBand2G", 2.0f);
-            set("eqBand3G", 3.0f);
-            set("eqBand4G", 1.5f);
+            set("veqF1", 100.0f);
+            set("veqG3", 1.0f);
+            set("veqG6", 2.0f);
+            set("veqG8", 3.0f);
+            set("veqG11", 1.5f);
 
             set("compThreshold", -16.0f);
             set("compRatio", 3.0f);
@@ -1486,11 +1520,11 @@ private:
             set("snapAmount", 0.85f);
             set("scaleType", 1.0f);
 
-            set("eqHP", 100.0f);
-            set("eqBand1G", 2.0f);
-            set("eqBand2G", 1.0f);
-            set("eqBand3G", 2.5f);
-            set("eqBand4G", 2.0f);
+            set("veqF1", 100.0f);
+            set("veqG3", 2.0f);
+            set("veqG6", 1.0f);
+            set("veqG8", 2.5f);
+            set("veqG11", 2.0f);
 
             set("compThreshold", -20.0f);
             set("compRatio", 4.5f);
@@ -1523,10 +1557,10 @@ private:
             set("snapAmount", 0.75f);
             set("scaleType", 0.0f);
 
-            set("eqHP", 90.0f);
-            set("eqBand1G", 1.5f);
-            set("eqBand3G", 2.5f);
-            set("eqBand4G", 3.0f);
+            set("veqF1", 90.0f);
+            set("veqG3", 1.5f);
+            set("veqG8", 2.5f);
+            set("veqG11", 3.0f);
 
             set("compThreshold", -18.0f);
             set("compRatio", 3.5f);
@@ -1559,9 +1593,9 @@ private:
             set("humanize", 0.05f);
             set("snapAmount", 0.95f);
 
-            set("eqHP", 150.0f);
-            set("eqBand3G", 3.0f);
-            set("eqBand4G", 4.0f);
+            set("veqF1", 150.0f);
+            set("veqG8", 3.0f);
+            set("veqG11", 4.0f);
 
             set("compThreshold", -26.0f);
             set("compRatio", 8.0f);
@@ -1600,11 +1634,11 @@ private:
         {
             setBool("pitchActive", false);
 
-            set("eqHP", 80.0f);
-            set("eqLP", 14000.0f);
-            set("eqBand1G", 2.5f);
-            set("eqBand2G", -2.0f);
-            set("eqBand3G", 1.5f);
+            set("veqF1", 80.0f);
+            set("veqF12", 14000.0f);
+            set("veqG3", 2.5f);
+            set("veqG6", -2.0f);
+            set("veqG8", 1.5f);
 
             set("compThreshold", -18.0f);
             set("compRatio", 3.5f);
@@ -1629,10 +1663,10 @@ private:
             set("humanize", 0.2f);
             set("snapAmount", 0.8f);
 
-            set("eqHP", 120.0f);
-            set("eqBand2G", -1.5f);
-            set("eqBand3G", 2.5f);
-            set("eqBand4G", 1.5f);
+            set("veqF1", 120.0f);
+            set("veqG6", -1.5f);
+            set("veqG8", 2.5f);
+            set("veqG11", 1.5f);
 
             set("compThreshold", -22.0f);
             set("compRatio", 5.0f);
@@ -1655,11 +1689,11 @@ private:
             set("humanize", 0.25f);
             set("snapAmount", 0.75f);
 
-            set("eqHP", 80.0f);
-            set("eqBand1G", 1.0f);
-            set("eqBand2G", -1.0f);
-            set("eqBand3G", 1.5f);
-            set("eqBand4G", 2.0f);
+            set("veqF1", 80.0f);
+            set("veqG3", 1.0f);
+            set("veqG6", -1.0f);
+            set("veqG8", 1.5f);
+            set("veqG11", 2.0f);
 
             set("compThreshold", -18.0f);
             set("compRatio", 3.0f);
@@ -1693,11 +1727,26 @@ private:
             set("snapAmount", 0.85f);
             set("scaleType", 1.0f);           // minor for melodic feel
 
-            set("eqHP", 80.0f);
-            set("eqBand1G", 2.0f);            // chest warmth
-            set("eqBand2G", -0.5f);
-            set("eqBand3G", 2.0f);            // vocal presence
-            set("eqBand4G", 3.0f);            // shimmer/air
+            setBool("formantActive", true);
+            set("formantShift", -1.0f);        // warm vocal character
+            set("formantMix", 0.5f);
+            set("formantSmooth", 0.5f);
+
+            set("veqF1", 80.0f);
+            set("veqG3", 2.0f);            // chest warmth
+            set("veqG5", -2.0f);           // cut boxiness
+            set("veqG6", -0.5f);
+            set("veqG7", 1.5f);            // 1.2kHz clarity
+            set("veqG8", 2.0f);            // vocal presence
+            set("veqG10", 1.0f);           // sparkle
+            set("veqG11", 3.0f);            // shimmer/air
+
+            setBool("mbActive", true);
+            set("mbThresh1", -20.0f);       // gentle body control
+            set("mbRatio1", 2.5f);
+            set("mbThresh4", -16.0f);       // presence smoothing
+            set("mbRatio4", 2.0f);
+            set("mbMakeup5", 2.0f);         // air lift
 
             set("compThreshold", -18.0f);
             set("compRatio", 3.5f);
@@ -1734,10 +1783,10 @@ private:
             set("snapAmount", 0.92f);
             set("scaleType", 1.0f);
 
-            set("eqHP", 100.0f);
-            set("eqBand1G", 1.5f);
-            set("eqBand3G", 2.5f);
-            set("eqBand4G", 2.0f);
+            set("veqF1", 100.0f);
+            set("veqG3", 1.5f);
+            set("veqG8", 2.5f);
+            set("veqG11", 2.0f);
 
             set("compThreshold", -22.0f);
             set("compRatio", 5.0f);
@@ -1776,11 +1825,11 @@ private:
             set("snapAmount", 0.7f);
             set("scaleType", 1.0f);
 
-            set("eqHP", 70.0f);
-            set("eqLP", 13000.0f);            // roll off for dark vibe
-            set("eqBand1G", 2.5f);            // warmth
-            set("eqBand2G", -1.0f);
-            set("eqBand3G", 1.0f);
+            set("veqF1", 70.0f);
+            set("veqF12", 13000.0f);            // roll off for dark vibe
+            set("veqG3", 2.5f);            // warmth
+            set("veqG6", -1.0f);
+            set("veqG8", 1.0f);
 
             set("compThreshold", -16.0f);
             set("compRatio", 3.0f);
@@ -1812,9 +1861,9 @@ private:
             set("humanize", 0.25f);
             set("snapAmount", 0.8f);
 
-            set("eqHP", 130.0f);
-            set("eqBand3G", 2.0f);
-            set("eqBand4G", 4.5f);            // max air for falsetto
+            set("veqF1", 130.0f);
+            set("veqG8", 2.0f);
+            set("veqG11", 4.5f);            // max air for falsetto
 
             set("compThreshold", -14.0f);
             set("compRatio", 2.5f);
@@ -1847,11 +1896,11 @@ private:
             set("humanize", 0.6f);            // raw human feel
             set("snapAmount", 0.3f);
 
-            set("eqHP", 180.0f);              // tight low cut
-            set("eqLP", 16000.0f);
-            set("eqBand2G", 3.5f);            // mid grit
-            set("eqBand3G", 5.0f);            // aggressive bite
-            set("eqBand4G", -0.5f);           // tame fizz
+            set("veqF1", 180.0f);              // tight low cut
+            set("veqF12", 16000.0f);
+            set("veqG6", 3.5f);            // mid grit
+            set("veqG8", 5.0f);            // aggressive bite
+            set("veqG11", -0.5f);           // tame fizz
 
             set("compThreshold", -28.0f);
             set("compRatio", 12.0f);          // brick wall
@@ -1878,10 +1927,10 @@ private:
             set("humanize", 0.5f);
             set("snapAmount", 0.35f);
 
-            set("eqHP", 160.0f);
-            set("eqBand2G", 2.5f);
-            set("eqBand3G", 4.0f);
-            set("eqBand4G", 1.0f);
+            set("veqF1", 160.0f);
+            set("veqG6", 2.5f);
+            set("veqG8", 4.0f);
+            set("veqG11", 1.0f);
 
             set("compThreshold", -26.0f);
             set("compRatio", 8.0f);
@@ -1910,10 +1959,10 @@ private:
             set("humanize", 0.55f);
             set("snapAmount", 0.3f);
 
-            set("eqHP", 200.0f);
-            set("eqBand1G", -1.0f);
-            set("eqBand2G", 4.0f);            // mid growl
-            set("eqBand3G", 3.5f);
+            set("veqF1", 200.0f);
+            set("veqG3", -1.0f);
+            set("veqG6", 4.0f);            // mid growl
+            set("veqG8", 3.5f);
 
             set("compThreshold", -30.0f);
             set("compRatio", 15.0f);
@@ -1962,14 +2011,25 @@ private:
         setBool("noteStabilizer", true);
         setBool("formantPreserve", true);
 
-        // EQ
-        setBool("eqActive", true);
-        set("eqHP", 80.0f);
-        set("eqLP", 18000.0f);
-        set("eqBand1F", 200.0f); set("eqBand1G", 0.0f);
-        set("eqBand2F", 800.0f); set("eqBand2G", 0.0f);
-        set("eqBand3F", 3000.0f); set("eqBand3G", 0.0f);
-        set("eqBand4F", 10000.0f); set("eqBand4G", 0.0f);
+        // Formant Shifter
+        setBool("formantActive", false);
+        set("formantShift", 0.0f);
+        set("formantMix", 1.0f);
+        set("formantSmooth", 0.3f);
+
+        // Visual EQ (12-band)
+        setBool("veqActive", true);
+        {
+            float defaultFreqs[] = { 30.f, 80.f, 160.f, 300.f, 500.f, 800.f, 1200.f, 2500.f, 4000.f, 6000.f, 10000.f, 16000.f };
+            for (int i = 0; i < 12; ++i)
+            {
+                auto si = juce::String(i + 1);
+                set("veqF" + si, defaultFreqs[i]);
+                set("veqG" + si, 0.0f);
+                set("veqQ" + si, 1.0f);
+                set("veqT" + si, (i == 0) ? 4.0f : (i == 11) ? 3.0f : 0.0f);
+            }
+        }
 
         // Comp
         setBool("compActive", true);
@@ -1983,6 +2043,18 @@ private:
         setBool("autoLevel", false);
         set("autoLevelTarget", -14.0f);
         set("thdMode", 0.0f);
+
+        // Multiband Compressor
+        setBool("mbActive", false);
+        for (int b = 0; b < 5; ++b)
+        {
+            auto sb = juce::String(b + 1);
+            set("mbThresh" + sb, -18.0f);
+            set("mbRatio"  + sb, 4.0f);
+            set("mbAttack" + sb, 5.0f);
+            set("mbRel"    + sb, 50.0f);
+            set("mbMakeup" + sb, 0.0f);
+        }
 
         // De-Esser
         setBool("deEsserActive", true);
