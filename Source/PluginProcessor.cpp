@@ -335,8 +335,13 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 
     // === REORDERABLE SIGNAL CHAIN ===
+    std::array<int, kNumModules> localChain;
+    {
+        juce::SpinLock::ScopedLockType lock (chainLock);
+        localChain = chainOrder;
+    }
     for (int slot = 0; slot < kNumModules; ++slot)
-        processModule (chainOrder[static_cast<size_t>(slot)], buffer, inputSilent);
+        processModule (localChain[static_cast<size_t>(slot)], buffer, inputSilent);
 
     // Output gain
     float outputGain = juce::Decibels::decibelsToGain(apvts.getRawParameterValue("outputGain")->load());
@@ -516,10 +521,13 @@ void HumHouseVocalsProcessor::getStateInformation (juce::MemoryBlock& destData)
 
     // Persist chain order as comma-separated string
     juce::String chainStr;
-    for (int i = 0; i < kNumModules; ++i)
     {
-        if (i > 0) chainStr += ",";
-        chainStr += juce::String(chainOrder[static_cast<size_t>(i)]);
+        juce::SpinLock::ScopedLockType lock (chainLock);
+        for (int i = 0; i < kNumModules; ++i)
+        {
+            if (i > 0) chainStr += ",";
+            chainStr += juce::String(chainOrder[static_cast<size_t>(i)]);
+        }
     }
     state.setProperty("chainOrder", chainStr, nullptr);
 
@@ -536,15 +544,29 @@ void HumHouseVocalsProcessor::setStateInformation (const void* data, int sizeInB
         if (state.hasProperty("uiScale"))
             uiScale.store(static_cast<float>(state.getProperty("uiScale")));
 
-        // Restore chain order
+        // Restore chain order (validate it's a valid permutation)
         if (state.hasProperty("chainOrder"))
         {
             auto chainStr = state.getProperty("chainOrder").toString();
             auto tokens = juce::StringArray::fromTokens(chainStr, ",", "");
             if (tokens.size() == kNumModules)
             {
+                std::array<int, kNumModules> candidate {};
+                std::array<bool, kNumModules> seen {};
+                bool valid = true;
                 for (int i = 0; i < kNumModules; ++i)
-                    chainOrder[static_cast<size_t>(i)] = tokens[i].getIntValue();
+                {
+                    int v = tokens[i].getIntValue();
+                    if (v < 0 || v >= kNumModules || seen[static_cast<size_t>(v)])
+                    { valid = false; break; }
+                    seen[static_cast<size_t>(v)] = true;
+                    candidate[static_cast<size_t>(i)] = v;
+                }
+                if (valid)
+                {
+                    juce::SpinLock::ScopedLockType lock (chainLock);
+                    chainOrder = candidate;
+                }
             }
         }
 

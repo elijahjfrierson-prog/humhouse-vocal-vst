@@ -97,11 +97,20 @@ public:
     const humvocal::VisualEQ::BandState& getEQBandState (int i) const { return visualEQ.getBandState(i); }
     static constexpr int kNumEQBands = humvocal::VisualEQ::kNumBands;
 
-    // Effect chain order — reorderable by the UI
-    std::array<int, kNumModules> getChainOrder() const { return chainOrder; }
-    void setChainOrder (const std::array<int, kNumModules>& order) { chainOrder = order; }
+    // Effect chain order — reorderable by the UI (thread-safe via SpinLock)
+    std::array<int, kNumModules> getChainOrder() const
+    {
+        juce::SpinLock::ScopedLockType lock (chainLock);
+        return chainOrder;
+    }
+    void setChainOrder (const std::array<int, kNumModules>& order)
+    {
+        juce::SpinLock::ScopedLockType lock (chainLock);
+        chainOrder = order;
+    }
     void swapChainModules (int posA, int posB)
     {
+        juce::SpinLock::ScopedLockType lock (chainLock);
         if (posA >= 0 && posA < kNumModules && posB >= 0 && posB < kNumModules)
             std::swap (chainOrder[static_cast<size_t>(posA)],
                        chainOrder[static_cast<size_t>(posB)]);
@@ -118,6 +127,7 @@ private:
     std::atomic<float> uiScale { 1.0f };
 
     // Effect chain order (default: Gate → Pitch → EQ → ... → Limiter)
+    mutable juce::SpinLock chainLock;
     std::array<int, kNumModules> chainOrder = {
         kGate, kPitch, kEQ, kComp, kMBComp, kDeEss,
         kSat, kTape, kWidth, kDoubler, kReverb, kDelay, kLoFi, kLimiter

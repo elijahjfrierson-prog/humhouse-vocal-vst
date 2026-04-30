@@ -193,6 +193,15 @@ public:
 
             // ==== TD-PSOLA synthesis ====
 
+            // ---- Spawn grain immediately if transitioning from passthrough ----
+            {
+                bool anyActive = false;
+                for (auto& g : grains)
+                    if (g.active) { anyActive = true; break; }
+                if (!anyActive && synthPhaseCounter == 0)
+                    spawnGrain (detectedPeriod);
+            }
+
             // ---- Check if it's time to spawn a new grain ----
             ++synthPhaseCounter;
             if (synthPhaseCounter >= curTargetPeriod)
@@ -285,8 +294,8 @@ private:
     // PSOLA grain pool
     static constexpr int kMaxGrains        = 8;
 
-    // Safety margin for analysis position drift
-    static constexpr double kSafeGap       = 256.0;
+    // Safety margin for analysis position drift (must be >= kMaxPeriod)
+    static constexpr double kSafeGap       = 800.0;
 
     // YIN parameters
     static constexpr float kYINThreshold   = 0.08f;
