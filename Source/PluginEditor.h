@@ -46,7 +46,7 @@ private:
         juce::OwnedArray<juce::Label>  knobLabels;
         juce::OwnedArray<juce::ComboBox> combos;
 
-        void addKnob (const juce::String& label);
+        void addKnob (const juce::String& label, const juce::String& tooltip = {});
         void addCombo (const juce::StringArray& items);
 
     private:

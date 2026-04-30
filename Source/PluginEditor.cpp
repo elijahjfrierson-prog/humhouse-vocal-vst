@@ -62,16 +62,24 @@ HumHouseVocalsEditor::ModuleStrip::ModuleStrip (const juce::String& name)
     addAndMakeVisible(activeButton);
 }
 
-void HumHouseVocalsEditor::ModuleStrip::addKnob (const juce::String& label)
+void HumHouseVocalsEditor::ModuleStrip::addKnob (const juce::String& label, const juce::String& tooltip)
 {
     auto* knob = knobs.add(new juce::Slider(juce::Slider::RotaryHorizontalVerticalDrag,
                                              juce::Slider::NoTextBox));
     knob->setPopupDisplayEnabled(true, true, this);
+    if (tooltip.isNotEmpty())
+        knob->setTooltip(tooltip);
+    else
+        knob->setTooltip(label);
     addAndMakeVisible(knob);
 
     auto* lbl = knobLabels.add(new juce::Label({}, label));
     lbl->setJustificationType(juce::Justification::centred);
     lbl->setFont(juce::Font(10.0f).italicised());
+    if (tooltip.isNotEmpty())
+        lbl->setTooltip(tooltip);
+    else
+        lbl->setTooltip(label);
     addAndMakeVisible(lbl);
 }
 
@@ -334,94 +342,94 @@ HumHouseVocalsEditor::~HumHouseVocalsEditor()
 void HumHouseVocalsEditor::setupModuleStrips()
 {
     // AUTO-TUNE — Retune Speed, Humanize, Snap, Sustain, Detune
-    pitchStrip.addKnob("RETUNE");
-    pitchStrip.addKnob("HUMAN");
-    pitchStrip.addKnob("SNAP");
-    pitchStrip.addKnob("SUSTAIN");
-    pitchStrip.addKnob("DETUNE");
+    pitchStrip.addKnob("RETUNE", "Retune Speed - How fast pitch corrects");
+    pitchStrip.addKnob("HUMAN", "Humanize - Natural variation amount");
+    pitchStrip.addKnob("SNAP", "Snap Amount - Pitch correction strength");
+    pitchStrip.addKnob("SUSTAIN", "Sustain - Note hold stability");
+    pitchStrip.addKnob("DETUNE", "Detune - Reference frequency (Hz)");
     addAndMakeVisible(pitchStrip);
 
     // FORMANT — Shift, Mix, Smooth
-    formantStrip.addKnob("SHIFT");
-    formantStrip.addKnob("MIX");
-    formantStrip.addKnob("SMOOTH");
+    formantStrip.addKnob("SHIFT", "Formant Shift (semitones)");
+    formantStrip.addKnob("MIX", "Formant Mix - Wet/Dry blend");
+    formantStrip.addKnob("SMOOTH", "Formant Smoothing");
     addAndMakeVisible(formantStrip);
 
     // VISUAL EQ — 12 bands are controlled via the EQ curve display; strip just has master gain
-    eqStrip.addKnob("BAND 1");
-    eqStrip.addKnob("BAND 6");
-    eqStrip.addKnob("BAND 12");
+    eqStrip.addKnob("BAND 1", "EQ Band 1 Gain (Low - 30 Hz)");
+    eqStrip.addKnob("BAND 6", "EQ Band 6 Gain (Mid - 800 Hz)");
+    eqStrip.addKnob("BAND 12", "EQ Band 12 Gain (High - 16 kHz)");
     addAndMakeVisible(eqStrip);
 
     // COMP — Threshold, Ratio, Attack, Release, Makeup
-    compStrip.addKnob("THRESH");
-    compStrip.addKnob("RATIO");
-    compStrip.addKnob("ATK");
-    compStrip.addKnob("REL");
-    compStrip.addKnob("MAKEUP");
+    compStrip.addKnob("THRESH", "Threshold (dB)");
+    compStrip.addKnob("RATIO", "Compression Ratio");
+    compStrip.addKnob("ATK", "Attack Time (ms)");
+    compStrip.addKnob("REL", "Release Time (ms)");
+    compStrip.addKnob("MAKEUP", "Makeup Gain (dB)");
     compStrip.addCombo({"THD Off","THD Soft","THD Hard"});
     addAndMakeVisible(compStrip);
 
     // MULTIBAND COMP — abbreviated controls
-    mbCompStrip.addKnob("BODY");
-    mbCompStrip.addKnob("MUD");
-    mbCompStrip.addKnob("CLARITY");
-    mbCompStrip.addKnob("PRES");
-    mbCompStrip.addKnob("AIR");
+    mbCompStrip.addKnob("BODY", "Body Band (0-200 Hz)");
+    mbCompStrip.addKnob("MUD", "Mud Band (200-600 Hz)");
+    mbCompStrip.addKnob("CLARITY", "Clarity Band (600-3k Hz)");
+    mbCompStrip.addKnob("PRES", "Presence Band (3k-8k Hz)");
+    mbCompStrip.addKnob("AIR", "Air Band (8k+ Hz)");
     addAndMakeVisible(mbCompStrip);
 
     // DE-ESSER — Freq, Threshold, Reduction
-    deEsserStrip.addKnob("FREQ");
-    deEsserStrip.addKnob("THRESH");
-    deEsserStrip.addKnob("REDUCE");
+    deEsserStrip.addKnob("FREQ", "De-Esser Center Frequency (Hz)");
+    deEsserStrip.addKnob("THRESH", "De-Esser Threshold (dB)");
+    deEsserStrip.addKnob("REDUCE", "De-Esser Reduction Amount (dB)");
     addAndMakeVisible(deEsserStrip);
 
     // SATURATION — Drive, Mix
-    satStrip.addKnob("DRIVE");
-    satStrip.addKnob("MIX");
+    satStrip.addKnob("DRIVE", "Saturation Drive Amount");
+    satStrip.addKnob("MIX", "Saturation Mix - Wet/Dry blend");
     satStrip.addCombo({"Tube","Tape","Transformer"});
     addAndMakeVisible(satStrip);
 
     // TAPE — IPS, Flutter, Drive
-    tapeStrip.addKnob("IPS");
-    tapeStrip.addKnob("FLUTTER");
-    tapeStrip.addKnob("DRIVE");
+    tapeStrip.addKnob("IPS", "Tape Speed (inches per second)");
+    tapeStrip.addKnob("FLUTTER", "Tape Flutter Amount");
+    tapeStrip.addKnob("DRIVE", "Tape Drive/Saturation");
     addAndMakeVisible(tapeStrip);
 
     // WIDTH — Amount
-    widthStrip.addKnob("AMOUNT");
+    widthStrip.addKnob("AMOUNT", "Stereo Width Amount");
     widthStrip.addCombo({"M/S","Haas","Freq Spread"});
     addAndMakeVisible(widthStrip);
 
     // DOUBLER — Mix, Detune, Delay
-    doublerStrip.addKnob("MIX");
-    doublerStrip.addKnob("DETUNE");
-    doublerStrip.addKnob("DELAY");
+    doublerStrip.addKnob("MIX", "Doubler Mix - Wet/Dry blend");
+    doublerStrip.addKnob("DETUNE", "Doubler Detune Amount (cents)");
+    doublerStrip.addKnob("DELAY", "Doubler Delay Time (ms)");
     addAndMakeVisible(doublerStrip);
 
     // REVERB — Short, Long, Duck
-    reverbStrip.addKnob("SHORT");
-    reverbStrip.addKnob("LONG");
-    reverbStrip.addKnob("DUCK");
+    reverbStrip.addKnob("SHORT", "Short Reverb Decay");
+    reverbStrip.addKnob("LONG", "Long Reverb Decay");
+    reverbStrip.addKnob("DUCK", "Reverb Ducking Amount");
     addAndMakeVisible(reverbStrip);
 
     // DELAY — Time, Feedback, Mix, Duck
-    delayStrip.addKnob("TIME");
-    delayStrip.addKnob("FB");
-    delayStrip.addKnob("MIX");
-    delayStrip.addKnob("DUCK");
+    delayStrip.addKnob("TIME", "Delay Time (ms)");
+    delayStrip.addKnob("FB", "Delay Feedback Amount");
+    delayStrip.addKnob("MIX", "Delay Mix - Wet/Dry blend");
+    delayStrip.addKnob("DUCK", "Delay Ducking Amount");
     addAndMakeVisible(delayStrip);
 
     // LO-FI — HP, LP, Bits, DS
-    lofiStrip.addKnob("HP");
-    lofiStrip.addKnob("LP");
-    lofiStrip.addKnob("BITS");
-    lofiStrip.addKnob("CRUSH");
+    lofiStrip.addKnob("HP", "Lo-Fi High Pass Filter (Hz)");
+    lofiStrip.addKnob("LP", "Lo-Fi Low Pass Filter (Hz)");
+    lofiStrip.addKnob("BITS", "Bit Depth Reduction");
+    lofiStrip.addKnob("CRUSH", "Sample Rate Crush");
     addAndMakeVisible(lofiStrip);
 
     // LIMITER — Ceiling, Release
-    limiterStrip.addKnob("CEIL");
-    limiterStrip.addKnob("REL");
+    limiterStrip.addKnob("CEIL", "Limiter Ceiling (dB)");
+    limiterStrip.addKnob("REL", "Limiter Release Time (ms)");
     addAndMakeVisible(limiterStrip);
 }
 
