@@ -362,7 +362,7 @@ void HumHouseVocalsEditor::setupModuleStrips()
     formantStrip.addKnob("SHIFT", "Formant Shift (semitones)");
     formantStrip.addKnob("MIX", "Formant Mix - Wet/Dry blend");
     formantStrip.addKnob("SMOOTH", "Formant Smoothing");
-    addAndMakeVisible(formantStrip);
+    addChildComponent(formantStrip);
 
     // VISUAL EQ — 12 bands are controlled via the EQ curve display; strip just has master gain
     eqStrip.addKnob("BAND 1", "EQ Band 1 Gain (Low - 30 Hz)");
