@@ -9,17 +9,17 @@ namespace humvocal
 {
 
 // ============================================================================
-// PitchEngine v4 — TD-PSOLA with MPM-style detection
+// PitchEngine v5 — Dual-Head Crossfading Pitch Shifter + YIN CMND Detection
 //
-// Detection:  FFT-based NSDF with MPM peak picking (O(N log N))
-// Shifting:   Time-Domain Pitch Synchronous Overlap-Add (TD-PSOLA)
-//             Grain size adapts to detected pitch period — eliminates graininess
-// Smoothing:  juce::LinearSmoothValue for per-sample retune speed control
+// Detection:  FFT-accelerated YIN with CMND normalization (O(N log N))
+//             Prevents octave errors; aggressive threshold for note capture
+// Shifting:   Two crossfading read heads with ACCUMULATED position
+//             Read heads advance at ratio speed — shift is immediate & strong
+//             Hann crossfade at grain boundaries hides discontinuities
+// Smoothing:  juce::LinearSmoothedValue for per-sample retune speed control
 //
-// Based on:
-//   - McLeod Pitch Method (2005) for robust peak picking
-//   - TD-PSOLA literature for pitch-synchronous shifting
-//   - Autotalent (Tom Baran) for overall architecture
+// Reference:  Cheveigné & Kawahara (2002) "YIN, a fundamental frequency
+//             estimator for speech and music"
 // ============================================================================
 class PitchEngine
 {
@@ -41,26 +41,29 @@ public:
         // FFT work buffer
         fftWork.assign (static_cast<size_t>(kFFTSize * 2), 0.0f);
 
+        // Difference function buffer for YIN CMND
+        yinDiff.assign (static_cast<size_t>(kAnalysisSize / 2), 0.0f);
+
         // Reset per-channel state
         for (auto& ch : channels)
         {
-            ch.inputBuf.fill (0.0f);
-            ch.writePos = kDefaultGrainSize + kDefaultGrainSize / 2;
-            for (auto& g : ch.grains) g = {};
-            ch.nextGrainIdx = 0;
-            ch.samplesUntilNextGrain = 1;
-            ch.currentHopSize = kDefaultGrainSize / 2;
+            ch.ring.fill (0.0f);
+            ch.writePos = kLatency;
+            ch.readPosA = 0.0;
+            ch.readPosB = 0.0;
+            ch.grainPhase = 0;
         }
+
+        grainSize = 512;
 
         // Reset detection
         detectBuf.fill (0.0f);
         detectWritePos = kAnalysisSize;
         analysisCounter = 0;
         cachedDetectedHz = 0.0f;
-        detectedPeriodSamples = kDefaultGrainSize / 2;
 
         // Reset smoothing
-        smoothedRatio.reset (sr, 0.005); // default 5ms ramp
+        smoothedRatio.reset (sr, 0.005);
         smoothedRatio.setCurrentAndTargetValue (1.0);
         updateSmoothRamp();
 
@@ -108,11 +111,14 @@ public:
 
         for (int i = 0; i < numSamples; ++i)
         {
-            // ---- Write input to per-channel buffers & detection buffer ----
+            // ---- Write input to per-channel ring buffers ----
             for (int ch = 0; ch < numChannels; ++ch)
-                channels[ch].inputBuf[static_cast<size_t>(channels[ch].writePos)] =
+            {
+                channels[ch].ring[static_cast<size_t>(channels[ch].writePos)] =
                     buffer.getSample (ch, i);
+            }
 
+            // ---- Feed detection buffer from channel 0 ----
             detectBuf[static_cast<size_t>(detectWritePos)] = buffer.getSample (0, i);
             detectWritePos = (detectWritePos + 1) % kBufSize;
 
@@ -121,13 +127,13 @@ public:
             if (analysisCounter >= kAnalysisHop)
             {
                 analysisCounter = 0;
-                float hz = detectPitchMPM();
+                float hz = detectPitchYIN();
                 if (hz > 0.0f)
                 {
                     cachedDetectedHz = hz;
-                    detectedPeriodSamples = juce::jlimit (
-                        kMinPeriod, kMaxPeriod,
-                        static_cast<int>(std::round (sr / static_cast<double>(hz))));
+                    int period = static_cast<int>(std::round (sr / static_cast<double>(hz)));
+                    period = juce::jlimit (kMinPeriod, kMaxPeriod, period);
+                    grainSize = juce::jlimit (kMinGrainSize, kMaxGrainSize, period * 2);
                 }
                 updateCorrection();
             }
@@ -135,65 +141,57 @@ public:
             // ---- Get smoothed ratio for this sample ----
             double ratio = smoothedRatio.getNextValue();
 
-            // ---- TD-PSOLA output per channel ----
+            // ---- Dual-head crossfading output per channel ----
             for (int ch = 0; ch < numChannels; ++ch)
             {
-                auto& state = channels[ch];
-                float output = 0.0f;
+                auto& s = channels[ch];
+                int gs = grainSize;
+                int halfGs = gs / 2;
 
-                // Sum active grains
-                for (auto& g : state.grains)
-                {
-                    if (! g.active) continue;
+                // Phase positions for the two heads (staggered by half grain)
+                int phaseA = s.grainPhase;
+                int phaseB = (s.grainPhase + halfGs) % gs;
 
-                    // Hann window computed inline (pitch-adaptive size)
-                    float w = 0.5f - 0.5f * std::cos (
-                        2.0f * kPi * static_cast<float>(g.phase)
-                        / static_cast<float>(g.grainSize));
+                // Reset each head at its Hann zero-crossing (phase 0)
+                // This is the only place positions reset — otherwise they accumulate
+                if (phaseA == 0)
+                    s.readPosA = static_cast<double>((s.writePos - kLatency + kBufSize) % kBufSize);
+                if (phaseB == 0)
+                    s.readPosB = static_cast<double>((s.writePos - kLatency + kBufSize) % kBufSize);
 
-                    float sample = cubicInterp (state.inputBuf, g.readPos);
-                    output += sample * w;
+                // Hann crossfade windows (complementary: wA + wB ≈ 1.0)
+                float wA = 0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float>(phaseA) / static_cast<float>(gs));
+                float wB = 0.5f - 0.5f * std::cos (2.0f * kPi * static_cast<float>(phaseB) / static_cast<float>(gs));
 
-                    // Advance read position at shifted rate
-                    g.readPos += ratio;
-                    while (g.readPos >= static_cast<double>(kBufSize))
-                        g.readPos -= static_cast<double>(kBufSize);
-                    while (g.readPos < 0.0)
-                        g.readPos += static_cast<double>(kBufSize);
+                // Read from both heads with cubic interpolation
+                float sA = cubicInterp (s.ring, s.readPosA);
+                float sB = cubicInterp (s.ring, s.readPosB);
 
-                    ++g.phase;
-                    if (g.phase >= g.grainSize)
-                        g.active = false;
-                }
-
-                // Start new grain at pitch-synchronous intervals
-                --state.samplesUntilNextGrain;
-                if (state.samplesUntilNextGrain <= 0)
-                {
-                    int period = detectedPeriodSamples;
-                    int grainSz = period * 2;                        // 2 pitch periods
-                    grainSz = juce::jlimit (kMinGrainSize, kMaxGrainSize, grainSz);
-
-                    state.currentHopSize = grainSz / 2;             // 50% overlap
-                    state.samplesUntilNextGrain = state.currentHopSize;
-
-                    // Find next grain slot
-                    auto& g = state.grains[static_cast<size_t>(state.nextGrainIdx)];
-                    state.nextGrainIdx = (state.nextGrainIdx + 1) % kMaxGrains;
-
-                    g.active = true;
-                    g.phase = 0;
-                    g.grainSize = grainSz;
-
-                    // Start reading from grainSize samples behind write position
-                    // Then search for a nearby peak to center the grain (phase alignment)
-                    int rawStart = (state.writePos - grainSz + kBufSize) % kBufSize;
-                    g.readPos = static_cast<double>(findNearbyPeak (state.inputBuf, rawStart, period));
-                }
-
+                // Mix via crossfade
+                float output = sA * wA + sB * wB;
                 buffer.setSample (ch, i, output);
-                state.writePos = (state.writePos + 1) % kBufSize;
+
+                // Advance read positions at SHIFTED rate (this is the pitch shift)
+                s.readPosA += ratio;
+                s.readPosB += ratio;
+
+                // Wrap read positions within buffer
+                while (s.readPosA >= static_cast<double>(kBufSize)) s.readPosA -= static_cast<double>(kBufSize);
+                while (s.readPosA < 0.0) s.readPosA += static_cast<double>(kBufSize);
+                while (s.readPosB >= static_cast<double>(kBufSize)) s.readPosB -= static_cast<double>(kBufSize);
+                while (s.readPosB < 0.0) s.readPosB += static_cast<double>(kBufSize);
+
+                // Advance write position
+                s.writePos = (s.writePos + 1) % kBufSize;
+
+                // Advance shared grain phase
+                if (ch == 0)
+                    s.grainPhase = (s.grainPhase + 1) % gs;
             }
+
+            // Sync grainPhase across channels (use channel 0 as master)
+            for (int ch = 1; ch < numChannels; ++ch)
+                channels[ch].grainPhase = channels[0].grainPhase;
         }
     }
 
@@ -207,21 +205,20 @@ private:
     static constexpr int kAnalysisSize = kFFTSize / 2;           // 2048 samples
     static constexpr int kAnalysisHop  = 512;                    // ~10ms @ 48kHz
 
-    // TD-PSOLA
-    static constexpr int kBufSize          = 16384;              // Large circular buffer
-    static constexpr int kMaxGrains        = 4;                  // Overlapping grains
+    // Pitch shifting
+    static constexpr int kBufSize          = 16384;
+    static constexpr int kLatency          = 1024;               // Read-behind distance
     static constexpr int kMinPeriod        = 48;                 // ~1000Hz @ 48kHz
     static constexpr int kMaxPeriod        = 800;                // ~60Hz @ 48kHz
-    static constexpr int kMinGrainSize     = 96;                 // 2 * minPeriod
-    static constexpr int kMaxGrainSize     = 1600;               // 2 * maxPeriod
-    static constexpr int kDefaultGrainSize = 480;                // 2 * ~200Hz period
+    static constexpr int kMinGrainSize     = 96;
+    static constexpr int kMaxGrainSize     = 1600;
     static constexpr int kHistorySize      = 12;
 
-    // MPM peak picking
-    static constexpr float kMPMCutoff      = 0.93f;
-    static constexpr float kMPMSmallCutoff = 0.5f;
+    // YIN parameters
+    static constexpr float kYINThreshold   = 0.10f;             // Aggressive capture
 
     double sr = 48000.0;
+    int grainSize = 512;
 
     // Analysis window
     std::array<float, kAnalysisSize> analysisWindow {};
@@ -229,36 +226,27 @@ private:
     // FFT
     juce::dsp::FFT fft { kFFTOrder };
     std::vector<float> fftWork;
+    std::vector<float> yinDiff;
 
     // Detection buffer
     std::array<float, kBufSize> detectBuf {};
     int detectWritePos = 0;
     int analysisCounter = 0;
     float cachedDetectedHz = 0.0f;
-    int detectedPeriodSamples = kDefaultGrainSize / 2;
 
-    // Per-channel TD-PSOLA state
-    struct Grain
-    {
-        double readPos  = 0.0;
-        int    phase    = 0;
-        int    grainSize = kDefaultGrainSize;
-        bool   active   = false;
-    };
-
+    // Per-channel state — dual crossfading read heads
     struct ChannelState
     {
-        std::array<float, kBufSize> inputBuf {};
+        std::array<float, kBufSize> ring {};
         int writePos = 0;
-        std::array<Grain, kMaxGrains> grains {};
-        int nextGrainIdx = 0;
-        int samplesUntilNextGrain = 0;
-        int currentHopSize = kDefaultGrainSize / 2;
+        double readPosA = 0.0;
+        double readPosB = 0.0;
+        int grainPhase = 0;
     };
 
     std::array<ChannelState, kMaxChannels> channels;
 
-    // Smoothed pitch ratio (per-sample via LinearSmoothValue)
+    // Smoothed pitch ratio
     juce::LinearSmoothedValue<double> smoothedRatio { 1.0 };
     double cachedRampSeconds = 0.005;
 
@@ -280,11 +268,11 @@ private:
     int histIdx = 0;
 
     // ========================================================================
-    //  MPM-style pitch detection via FFT NSDF
+    //  YIN pitch detection with CMND normalization (FFT-accelerated)
     // ========================================================================
-    float detectPitchMPM()
+    float detectPitchYIN()
     {
-        // Fill FFT buffer with windowed input, zero-padded
+        // ---- Step 1: Compute autocorrelation via FFT ----
         for (int i = 0; i < kAnalysisSize; ++i)
         {
             int idx = (detectWritePos - kAnalysisSize + i + kBufSize) % kBufSize;
@@ -294,10 +282,8 @@ private:
         for (int i = kAnalysisSize; i < kFFTSize * 2; ++i)
             fftWork[static_cast<size_t>(i)] = 0.0f;
 
-        // Forward FFT
         fft.performRealOnlyForwardTransform (fftWork.data(), true);
 
-        // Power spectrum in-place
         for (int k = 0; k < kFFTSize; ++k)
         {
             float re = fftWork[static_cast<size_t>(2 * k)];
@@ -306,83 +292,83 @@ private:
             fftWork[static_cast<size_t>(2 * k + 1)] = 0.0f;
         }
 
-        // Inverse FFT → autocorrelation
         fft.performRealOnlyInverseTransform (fftWork.data());
 
+        // fftWork[tau] now contains the autocorrelation r(tau)
         float acf0 = fftWork[0];
         if (acf0 <= 0.0f) return 0.0f;
 
-        // Normalize to get NSDF-like values (0 to 1 range)
-        float invAcf0 = 1.0f / acf0;
+        // ---- Step 2: Compute YIN difference function from autocorrelation ----
+        // d(tau) = 2 * r(0) - 2 * r(tau)
+        // (Simplified since we're using a single window — energy terms cancel)
+        int halfSize = kAnalysisSize / 2;
+        for (int tau = 0; tau < halfSize; ++tau)
+            yinDiff[static_cast<size_t>(tau)] = 2.0f * acf0 - 2.0f * fftWork[static_cast<size_t>(tau)];
 
-        int minLag = juce::jmax (1, static_cast<int>(sr / 1000.0));
-        int maxLag = juce::jmin (kAnalysisSize - 1, static_cast<int>(sr / 60.0));
-
-        // ---- MPM peak picking ----
-        // Find peaks in each positive lobe of the NSDF
-        struct Peak { int lag; float val; };
-        Peak bestPeak { 0, 0.0f };
-        bool inPositiveLobe = false;
-        Peak currentLobePeak { 0, -1.0f };
-
-        for (int lag = minLag; lag <= maxLag; ++lag)
+        // ---- Step 3: Cumulative Mean Normalized Difference (CMND) ----
+        // d'(0) = 1, d'(tau) = d(tau) / ((1/tau) * sum(d(j), j=1..tau))
+        yinDiff[0] = 1.0f;
+        float runningSum = 0.0f;
+        for (int tau = 1; tau < halfSize; ++tau)
         {
-            float val = fftWork[static_cast<size_t>(lag)] * invAcf0;
+            runningSum += yinDiff[static_cast<size_t>(tau)];
+            if (runningSum > 0.0f)
+                yinDiff[static_cast<size_t>(tau)] *= static_cast<float>(tau) / runningSum;
+            else
+                yinDiff[static_cast<size_t>(tau)] = 1.0f;
+        }
 
-            if (val > 0.0f)
+        // ---- Step 4: Absolute thresholding — find first dip below threshold ----
+        int minLag = juce::jmax (2, static_cast<int>(sr / 1000.0));
+        int maxLag = juce::jmin (halfSize - 2, static_cast<int>(sr / 60.0));
+
+        int tauEstimate = -1;
+        for (int tau = minLag; tau <= maxLag; ++tau)
+        {
+            if (yinDiff[static_cast<size_t>(tau)] < kYINThreshold)
             {
-                if (! inPositiveLobe)
-                {
-                    inPositiveLobe = true;
-                    currentLobePeak = { lag, val };
-                }
-                else if (val > currentLobePeak.val)
-                {
-                    currentLobePeak = { lag, val };
-                }
-            }
-            else if (inPositiveLobe)
-            {
-                // End of positive lobe — check this peak
-                inPositiveLobe = false;
+                // Walk to the local minimum
+                while (tau + 1 <= maxLag
+                       && yinDiff[static_cast<size_t>(tau + 1)] < yinDiff[static_cast<size_t>(tau)])
+                    ++tau;
 
-                if (currentLobePeak.val > kMPMSmallCutoff)
-                {
-                    // MPM: accept the first peak above the cutoff threshold
-                    if (currentLobePeak.val >= kMPMCutoff)
-                    {
-                        bestPeak = currentLobePeak;
-                        break; // first peak above cutoff wins
-                    }
-
-                    // Track the overall best peak as fallback
-                    if (currentLobePeak.val > bestPeak.val)
-                        bestPeak = currentLobePeak;
-                }
+                tauEstimate = tau;
+                break;
             }
         }
 
-        // Handle case where we're still in a positive lobe at maxLag
-        if (inPositiveLobe && currentLobePeak.val > bestPeak.val
-            && currentLobePeak.val > kMPMSmallCutoff)
-            bestPeak = currentLobePeak;
-
-        if (bestPeak.val < 0.3f || bestPeak.lag < 1)
-            return 0.0f;
-
-        // Parabolic interpolation for sub-sample accuracy
-        float betterLag = static_cast<float>(bestPeak.lag);
-        if (bestPeak.lag > minLag && bestPeak.lag < maxLag)
+        // Fallback: if no dip below threshold, find the global minimum
+        if (tauEstimate < 0)
         {
-            float y0 = fftWork[static_cast<size_t>(bestPeak.lag - 1)] * invAcf0;
-            float y1 = bestPeak.val;
-            float y2 = fftWork[static_cast<size_t>(bestPeak.lag + 1)] * invAcf0;
-            float denom = 2.0f * (y0 - 2.0f * y1 + y2);
+            float bestVal = 1.0f;
+            for (int tau = minLag; tau <= maxLag; ++tau)
+            {
+                if (yinDiff[static_cast<size_t>(tau)] < bestVal)
+                {
+                    bestVal = yinDiff[static_cast<size_t>(tau)];
+                    tauEstimate = tau;
+                }
+            }
+            // Only accept if reasonably good
+            if (bestVal > 0.4f)
+                return 0.0f;
+        }
+
+        if (tauEstimate < 1) return 0.0f;
+
+        // ---- Step 5: Parabolic interpolation for sub-sample accuracy ----
+        float betterTau = static_cast<float>(tauEstimate);
+        if (tauEstimate > minLag && tauEstimate < maxLag)
+        {
+            float s0 = yinDiff[static_cast<size_t>(tauEstimate - 1)];
+            float s1 = yinDiff[static_cast<size_t>(tauEstimate)];
+            float s2 = yinDiff[static_cast<size_t>(tauEstimate + 1)];
+            float denom = 2.0f * (2.0f * s1 - s2 - s0);
             if (std::abs (denom) > 1e-9f)
-                betterLag += (y0 - y2) / denom;
+                betterTau += (s0 - s2) / denom;
         }
 
-        return static_cast<float>(sr) / betterLag;
+        return static_cast<float>(sr) / betterTau;
     }
 
     // ========================================================================
@@ -451,35 +437,12 @@ private:
         cachedRampSeconds = rampSeconds;
         if (sr > 0.0)
         {
-            // Preserve current value — don't snap to target
             double current = smoothedRatio.getCurrentValue();
             double target  = smoothedRatio.getTargetValue();
             smoothedRatio.reset (sr, rampSeconds);
             smoothedRatio.setCurrentAndTargetValue (current);
             smoothedRatio.setTargetValue (target);
         }
-    }
-
-    // ========================================================================
-    //  Find nearby peak in input buffer for phase-aligned grain start
-    // ========================================================================
-    int findNearbyPeak (const std::array<float, kBufSize>& buf, int center, int searchRange) const
-    {
-        int halfSearch = searchRange / 2;
-        int bestIdx = center;
-        float bestAbs = 0.0f;
-
-        for (int off = -halfSearch; off <= halfSearch; ++off)
-        {
-            int idx = (center + off + kBufSize) % kBufSize;
-            float val = std::abs (buf[static_cast<size_t>(idx)]);
-            if (val > bestAbs)
-            {
-                bestAbs = val;
-                bestIdx = idx;
-            }
-        }
-        return bestIdx;
     }
 
     // ========================================================================
