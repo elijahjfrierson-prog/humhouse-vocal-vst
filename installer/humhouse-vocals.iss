@@ -5,7 +5,7 @@
 ; Requires Inno Setup 6+ (https://jrsoftware.org/isinfo.php)
 
 #define MyAppName      "HumHouse Vocals"
-#define MyAppVersion   "1.5.2"
+#define MyAppVersion   "1.5.3"
 #define MyAppPublisher "HumHouse"
 #define MyAppURL       "https://github.com/elijahjfrierson-prog/humhouse-vocal-vst"
 
@@ -20,7 +20,7 @@ DefaultDirName={autocf64}\VST3
 DefaultGroupName={#MyAppName}
 LicenseFile=eula.txt
 OutputDir=..\build\installer
-OutputBaseFilename=HumHouse-Vocals-v1.5.2-Installer
+OutputBaseFilename=HumHouse-Vocals-v1.5.3-Installer
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
