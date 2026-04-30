@@ -467,7 +467,10 @@ private:
 
             // Sticky note: higher threshold to leave than to enter
             if (std::abs (centsDiff) < exitThresh)
+            {
+                noteHoldCounter = 0;
                 return lockedNoteHz;  // Stay locked
+            }
 
             // Note is changing — require hold time before committing
             ++noteHoldCounter;

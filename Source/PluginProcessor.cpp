@@ -239,21 +239,22 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         buffer.applyGain(inputGain);
 
     // Save dry signal for dry/wet mix — delayed to match pitch engine latency
-    // so we don't create a comb filter when mixing dry + wet
+    // so we don't create a comb filter when mixing dry + wet.
+    // The delay line ALWAYS advances so the buffer stays in sync even when
+    // dryWet is 1.0 — prevents stale audio burst if user automates dryWet.
     float dryWet = apvts.getRawParameterValue("dryWet")->load();
     bool needDry = (dryWet < 0.99f);
     if (needDry)
-    {
         dryBuffer.setSize(numChannels, numSamples, false, false, true);
-        // Write input into delay line and read delayed output into dryBuffer
-        // Both channels share the same write position (interleaved advance)
+    {
         int wp = dryDelayWritePos;
         for (int i = 0; i < numSamples; ++i)
         {
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 float* delayData = dryDelayBuffer.getWritePointer(ch);
-                dryBuffer.setSample(ch, i, delayData[wp]);
+                if (needDry)
+                    dryBuffer.setSample(ch, i, delayData[wp]);
                 delayData[wp] = buffer.getSample(ch, i);
             }
             wp = (wp + 1) % dryDelaySize;
