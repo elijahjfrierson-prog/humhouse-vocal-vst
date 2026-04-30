@@ -13,6 +13,7 @@
 #include "VisualEQ.h"
 // FormantShifter removed — was causing static/CPU issues
 #include "MultibandCompressor.h"
+#include "NoiseGate.h"
 #include "VocalReverb.h"
 #include "PresetManager.h"
 
@@ -93,6 +94,7 @@ private:
     std::atomic<float> uiScale { 1.0f };
 
     // DSP modules — signal chain order
+    humvocal::NoiseGate         noiseGate;
     humvocal::PitchEngine       pitchEngine;
     humvocal::VisualEQ          visualEQ;
     humvocal::VocalCompressor   compressor;

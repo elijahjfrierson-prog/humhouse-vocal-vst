@@ -10,7 +10,7 @@ namespace humvocal
 
 // Real-time pitch correction engine.
 // Detection: YIN autocorrelation (efficient, runs every N blocks).
-// Shifting: Dual-head ring buffer with cosine crossfade — zero-click,
+// Shifting: Per-channel dual-head ring buffer with cosine crossfade — zero-click,
 // artifact-free pitch shifting suitable for real-time vocal processing.
 class PitchEngine
 {
@@ -24,12 +24,19 @@ public:
         sr = sampleRate;
         maxBlock = blockSize;
 
-        // Ring buffer for pitch shifting (large enough for low notes)
+        // Per-channel ring buffers for pitch shifting
         ringSize = 4096;
-        ringBuffer.assign(static_cast<size_t>(ringSize), 0.0f);
-        writePos = 0;
-        readPosA = 0.0;
-        readPosB = static_cast<double>(ringSize) / 2.0; // offset by half
+        for (int ch = 0; ch < kMaxChannels; ++ch)
+        {
+            channels[ch].ringBuffer.assign(static_cast<size_t>(ringSize), 0.0f);
+            channels[ch].writePos = 0;
+            channels[ch].readPosA = 0.0;
+            channels[ch].readPosB = static_cast<double>(ringSize) / 2.0;
+        }
+
+        // Shared ratio state (same pitch correction for all channels)
+        smoothedRatio = 1.0;
+        targetRatio = 1.0;
 
         // YIN detection buffer (~60 Hz minimum)
         yinBufferSize = static_cast<int>(sr / 60.0) * 2;
@@ -38,8 +45,6 @@ public:
         yinWritePos = 0;
 
         // State reset
-        smoothedRatio = 1.0;
-        targetRatio = 1.0;
         yinSkipCounter = 0;
         cachedDetectedHz = 0.0f;
         lastDetectedHz = 0.0f;
@@ -66,7 +71,7 @@ public:
     void process (juce::AudioBuffer<float>& buffer)
     {
         const int numSamples = buffer.getNumSamples();
-        const int numChannels = buffer.getNumChannels();
+        const int numChannels = juce::jmin(buffer.getNumChannels(), kMaxChannels);
 
         if (numChannels == 0 || numSamples == 0 || sr <= 0.0)
             return;
@@ -141,41 +146,41 @@ public:
         }
 
         // Smooth ratio change (retune speed controls smoothing)
-        // Higher retuneSpeed = faster correction (less smoothing)
         double smoothCoeff = 1.0 - std::exp(-1.0 / (sr * (0.002 + (1.0 - static_cast<double>(retuneSpeed)) * 0.15)));
         targetRatio = newTargetRatio;
 
-        // Apply pitch shift using dual-head ring buffer
-        for (int ch = 0; ch < numChannels; ++ch)
+        // Apply pitch shift — process all channels simultaneously per sample
+        // This ensures shared smoothedRatio advances once per sample (not per channel)
+        for (int i = 0; i < numSamples; ++i)
         {
-            float* data = buffer.getWritePointer(ch);
+            // Advance smoothed ratio once per sample
+            smoothedRatio += smoothCoeff * (targetRatio - smoothedRatio);
 
-            for (int i = 0; i < numSamples; ++i)
+            for (int ch = 0; ch < numChannels; ++ch)
             {
-                // Smooth the ratio per-sample for glitch-free transitions
-                smoothedRatio += smoothCoeff * (targetRatio - smoothedRatio);
+                auto& state = channels[ch];
+                float* data = buffer.getWritePointer(ch);
 
-                // Write input to ring buffer
-                ringBuffer[static_cast<size_t>(writePos)] = data[i];
+                // Write input to this channel's ring buffer
+                state.ringBuffer[static_cast<size_t>(state.writePos)] = data[i];
 
-                // Advance read pointers at shifted rate
-                readPosA += smoothedRatio;
-                readPosB += smoothedRatio;
+                // Advance this channel's read pointers at shifted rate
+                state.readPosA += smoothedRatio;
+                state.readPosB += smoothedRatio;
 
                 // Wrap read positions
-                if (readPosA >= static_cast<double>(ringSize)) readPosA -= static_cast<double>(ringSize);
-                if (readPosB >= static_cast<double>(ringSize)) readPosB -= static_cast<double>(ringSize);
-                if (readPosA < 0.0) readPosA += static_cast<double>(ringSize);
-                if (readPosB < 0.0) readPosB += static_cast<double>(ringSize);
+                if (state.readPosA >= static_cast<double>(ringSize)) state.readPosA -= static_cast<double>(ringSize);
+                if (state.readPosB >= static_cast<double>(ringSize)) state.readPosB -= static_cast<double>(ringSize);
+                if (state.readPosA < 0.0) state.readPosA += static_cast<double>(ringSize);
+                if (state.readPosB < 0.0) state.readPosB += static_cast<double>(ringSize);
 
                 // Read with linear interpolation from both heads
-                float sampleA = readInterpolated(readPosA);
-                float sampleB = readInterpolated(readPosB);
+                float sampleA = readInterpolated(state.ringBuffer, state.readPosA);
+                float sampleB = readInterpolated(state.ringBuffer, state.readPosB);
 
                 // Crossfade based on distance from write pointer
-                // Each head fades out as it approaches the write pointer
-                float fadeA = computeCrossfade(readPosA);
-                float fadeB = computeCrossfade(readPosB);
+                float fadeA = computeCrossfade(state.readPosA, state.writePos);
+                float fadeB = computeCrossfade(state.readPosB, state.writePos);
 
                 // Normalize so sum of fades = 1
                 float totalFade = fadeA + fadeB;
@@ -193,7 +198,7 @@ public:
                 data[i] = sampleA * fadeA + sampleB * fadeB;
 
                 // Advance write pointer
-                writePos = (writePos + 1) % ringSize;
+                state.writePos = (state.writePos + 1) % ringSize;
             }
         }
     }
@@ -201,20 +206,26 @@ public:
 private:
     static constexpr int kHistorySize = 8;
     static constexpr int kYinSkipBlocks = 4;
+    static constexpr int kMaxChannels = 2;
 
     double sr = 44100.0;
     int maxBlock = 512;
 
-    // Pitch shifting ring buffer
+    // Per-channel pitch shifting state
+    struct ChannelState
+    {
+        std::vector<float> ringBuffer;
+        int writePos = 0;
+        double readPosA = 0.0;
+        double readPosB = 0.0;
+    };
+
     int ringSize = 4096;
-    std::vector<float> ringBuffer;
-    int writePos = 0;
-    double readPosA = 0.0;
-    double readPosB = 0.0;
-    double smoothedRatio = 1.0;
+    std::array<ChannelState, kMaxChannels> channels;
+    double smoothedRatio = 1.0;  // Shared — same correction for both channels
     double targetRatio = 1.0;
 
-    // YIN detection
+    // YIN detection (uses channel 0 only)
     int yinBufferSize = 0;
     std::vector<float> yinBuffer;
     std::vector<float> inputRing;
@@ -239,37 +250,33 @@ private:
     std::array<float, kHistorySize> detectedHistory {};
     int histIdx = 0;
 
-    float readInterpolated (double pos) const
+    float readInterpolated (const std::vector<float>& ring, double pos) const
     {
         int idx0 = static_cast<int>(pos) % ringSize;
         int idx1 = (idx0 + 1) % ringSize;
         float frac = static_cast<float>(pos - std::floor(pos));
-        return ringBuffer[static_cast<size_t>(idx0)] * (1.0f - frac)
-             + ringBuffer[static_cast<size_t>(idx1)] * frac;
+        return ring[static_cast<size_t>(idx0)] * (1.0f - frac)
+             + ring[static_cast<size_t>(idx1)] * frac;
     }
 
-    float computeCrossfade (double readPos) const
+    float computeCrossfade (double readPos, int wPos) const
     {
-        // Distance from write pointer (in samples, wrapped)
-        double dist = static_cast<double>(writePos) - readPos;
+        double dist = static_cast<double>(wPos) - readPos;
         if (dist < 0.0) dist += static_cast<double>(ringSize);
 
-        // Fade zone = 1/4 of ring on each side of write pointer
         double fadeZone = static_cast<double>(ringSize) / 4.0;
 
         if (dist < fadeZone)
         {
-            // Approaching write pointer from behind — fade out
             return static_cast<float>(0.5 * (1.0 + std::cos(juce::MathConstants<double>::pi * (1.0 - dist / fadeZone))));
         }
         else if (dist > static_cast<double>(ringSize) - fadeZone)
         {
-            // Just passed write pointer — fade in
             double d = static_cast<double>(ringSize) - dist;
             return static_cast<float>(0.5 * (1.0 + std::cos(juce::MathConstants<double>::pi * (1.0 - d / fadeZone))));
         }
 
-        return 1.0f; // Full volume in the middle
+        return 1.0f;
     }
 
     float detectPitchYIN()
@@ -277,7 +284,6 @@ private:
         const int W = yinBufferSize / 2;
         if (W < 2) return 0.0f;
 
-        // Difference function
         for (int tau = 0; tau < W; ++tau)
         {
             float sum = 0.0f;
@@ -291,7 +297,6 @@ private:
             yinBuffer[static_cast<size_t>(tau)] = sum;
         }
 
-        // Cumulative mean normalized difference
         yinBuffer[0] = 1.0f;
         float runningSum = 0.0f;
         for (int tau = 1; tau < W; ++tau)
@@ -300,7 +305,6 @@ private:
             yinBuffer[static_cast<size_t>(tau)] *= static_cast<float>(tau) / (runningSum > 0.0f ? runningSum : 1.0f);
         }
 
-        // Threshold detection
         constexpr float threshold = 0.15f;
         int tauEstimate = -1;
         for (int tau = 2; tau < W; ++tau)
@@ -316,7 +320,6 @@ private:
 
         if (tauEstimate < 1) return 0.0f;
 
-        // Parabolic interpolation
         float betterTau = static_cast<float>(tauEstimate);
         if (tauEstimate > 0 && tauEstimate < W - 1)
         {

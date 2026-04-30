@@ -27,6 +27,15 @@ HumHouseVocalsProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantMix",       "Formant Mix",       0.0f, 1.0f, 1.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("formantSmooth",    "Formant Smooth",    0.0f, 1.0f, 0.3f));
 
+    // --- NOISE GATE ---
+    params.push_back (std::make_unique<juce::AudioParameterBool>  ("gateActive",    "Gate Active",       false));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("gateThreshold", "Gate Threshold",    -80.0f, 0.0f, -40.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("gateRatio",     "Gate Ratio",        1.0f, 100.0f, 100.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("gateAttack",    "Gate Attack",       0.01f, 100.0f, 0.1f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("gateHold",      "Gate Hold",         0.0f, 500.0f, 50.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("gateRelease",   "Gate Release",      1.0f, 2000.0f, 100.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("gateRange",     "Gate Range",        -120.0f, 0.0f, -80.0f));
+
     // --- VISUAL EQ (12-band) ---
     params.push_back (std::make_unique<juce::AudioParameterBool>  ("veqActive",  "Visual EQ Active",  false));
     for (int i = 0; i < 12; ++i)
@@ -152,6 +161,7 @@ HumHouseVocalsProcessor::~HumHouseVocalsProcessor() = default;
 // ---------------------------------------------------------------------------
 void HumHouseVocalsProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    noiseGate.prepare(sampleRate, samplesPerBlock);
     pitchEngine.prepare(sampleRate, samplesPerBlock);
     visualEQ.prepare(sampleRate, samplesPerBlock);
     compressor.prepare(sampleRate, samplesPerBlock);
@@ -226,6 +236,9 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     if (!inputSilent)
     {
+        // 0. Noise Gate (first in chain — removes noise before processing)
+        noiseGate.process(buffer);
+
         // 1. Pitch Correction (only when active and input has audio)
         if (apvts.getRawParameterValue("pitchActive")->load() > 0.5f)
             pitchEngine.process(buffer);
@@ -330,6 +343,15 @@ void HumHouseVocalsProcessor::updateModuleParameters()
     pitchEngine.setFormantPreserve(apvts.getRawParameterValue("formantPreserve")->load() > 0.5f);
 
     // Formant Shifter — removed from signal chain (kept parameters for preset compat)
+
+    // Noise Gate
+    noiseGate.setActive(apvts.getRawParameterValue("gateActive")->load() > 0.5f);
+    noiseGate.setThreshold(apvts.getRawParameterValue("gateThreshold")->load());
+    noiseGate.setRatio(apvts.getRawParameterValue("gateRatio")->load());
+    noiseGate.setAttack(apvts.getRawParameterValue("gateAttack")->load());
+    noiseGate.setHold(apvts.getRawParameterValue("gateHold")->load());
+    noiseGate.setRelease(apvts.getRawParameterValue("gateRelease")->load());
+    noiseGate.setRange(apvts.getRawParameterValue("gateRange")->load());
 
     // Visual EQ (12-band)
     visualEQ.setActive(apvts.getRawParameterValue("veqActive")->load() > 0.5f);

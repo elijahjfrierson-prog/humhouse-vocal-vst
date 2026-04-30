@@ -349,6 +349,15 @@ void HumHouseVocalsEditor::setupModuleStrips()
     pitchStrip.addKnob("DETUNE", "Detune - Reference frequency (Hz)");
     addAndMakeVisible(pitchStrip);
 
+    // NOISE GATE — Threshold, Ratio, Attack, Hold, Release, Range
+    gateStrip.addKnob("THRESH", "Gate Threshold (dB)");
+    gateStrip.addKnob("RATIO", "Gate Ratio (100 = hard gate)");
+    gateStrip.addKnob("ATK", "Gate Attack Time (ms)");
+    gateStrip.addKnob("HOLD", "Gate Hold Time (ms)");
+    gateStrip.addKnob("REL", "Gate Release Time (ms)");
+    gateStrip.addKnob("RANGE", "Gate Range - Max attenuation (dB)");
+    addAndMakeVisible(gateStrip);
+
     // FORMANT — Shift, Mix, Smooth
     formantStrip.addKnob("SHIFT", "Formant Shift (semitones)");
     formantStrip.addKnob("MIX", "Formant Mix - Wet/Dry blend");
@@ -462,6 +471,15 @@ void HumHouseVocalsEditor::attachParameters()
     attachSlider(*pitchStrip.knobs[2], "snapAmount");
     attachSlider(*pitchStrip.knobs[3], "pitchSustain");
     attachSlider(*pitchStrip.knobs[4], "detune");
+
+    // Noise Gate
+    attachButton(gateStrip.activeButton, "gateActive");
+    attachSlider(*gateStrip.knobs[0], "gateThreshold");
+    attachSlider(*gateStrip.knobs[1], "gateRatio");
+    attachSlider(*gateStrip.knobs[2], "gateAttack");
+    attachSlider(*gateStrip.knobs[3], "gateHold");
+    attachSlider(*gateStrip.knobs[4], "gateRelease");
+    attachSlider(*gateStrip.knobs[5], "gateRange");
 
     // Formant
     attachButton(formantStrip.activeButton, "formantActive");
@@ -974,7 +992,7 @@ void HumHouseVocalsEditor::resized()
     int stripH = stripArea.getHeight() / 2;
     int stripW = stripArea.getWidth() / 7;
 
-    ModuleStrip* row1[] = { &pitchStrip, &formantStrip, &eqStrip, &compStrip, &mbCompStrip, &deEsserStrip, &satStrip };
+    ModuleStrip* row1[] = { &pitchStrip, &gateStrip, &eqStrip, &compStrip, &mbCompStrip, &deEsserStrip, &satStrip };
     ModuleStrip* row2[] = { &tapeStrip, &widthStrip, &doublerStrip, &reverbStrip, &delayStrip, &lofiStrip, &limiterStrip };
 
     auto row1Area = stripArea.removeFromTop(stripH);

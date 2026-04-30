@@ -131,6 +131,7 @@ private:
 
     // Module strips
     ModuleStrip pitchStrip    { "AUTO-TUNE" };
+    ModuleStrip gateStrip     { "GATE" };
     ModuleStrip formantStrip  { "FORMANT" };
     ModuleStrip eqStrip       { "VISUAL EQ" };
     ModuleStrip compStrip     { "COMP" };
