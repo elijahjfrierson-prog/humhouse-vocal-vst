@@ -16,7 +16,7 @@ AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
-DefaultDirName={commoncf64}\VST3
+DefaultDirName={autocf64}\VST3
 DefaultGroupName={#MyAppName}
 LicenseFile=eula.txt
 OutputDir=..\build\installer
@@ -39,11 +39,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; VST3 plugin → system-wide VST3 folder (all DAWs: FL Studio, Ableton,
 ; Reaper, Cubase, Studio One, Bitwig, etc.)
 Source: "..\build\HumHouseVocals_artefacts\Release\VST3\HumHouse Vocals.vst3\*"; \
-    DestDir: "{commoncf64}\VST3\HumHouse Vocals.vst3"; \
+    DestDir: "{autocf64}\VST3\HumHouse Vocals.vst3"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{commoncf64}\VST3\HumHouse Vocals.vst3"
+Type: filesandordirs; Name: "{autocf64}\VST3\HumHouse Vocals.vst3"
 
 [Messages]
 WelcomeLabel2=This will install {#MyAppName} v{#MyAppVersion} VST3 plugin.%n%nThe plugin will be placed in your VST3 folder so FL Studio, Ableton, and other DAWs can find it automatically.%n%nAfter installation: FL Studio → Options → Manage Plugins → Start Scan
