@@ -60,6 +60,15 @@ public:
         cachedDetectedHz = 0.0f;
         lastValidDetectedHz = 0.0f;
 
+        // Detection LP prefilter coefficient: cutoff ~1200Hz
+        // One-pole: coeff = 2*pi*fc / (2*pi*fc + sr)
+        {
+            double fc = 1200.0;
+            detectLPCoeff = static_cast<float>(
+                2.0 * kPi * fc / (2.0 * kPi * fc + sr));
+            detectLPState = 0.0f;
+        }
+
         // Reset smoothing
         smoothedRatio.reset (sr, 0.005);
         smoothedRatio.setCurrentAndTargetValue (1.0);
@@ -127,8 +136,11 @@ public:
                     buffer.getSample (ch, i);
             }
 
-            // ---- Feed detection buffer from channel 0 ----
-            detectBuf[static_cast<size_t>(detectWritePos)] = buffer.getSample (0, i);
+            // ---- Feed detection buffer from channel 0 (low-pass filtered) ----
+            // LP at ~1200Hz helps YIN focus on the fundamental, not harmonics
+            float raw = buffer.getSample (0, i);
+            detectLPState += detectLPCoeff * (raw - detectLPState);
+            detectBuf[static_cast<size_t>(detectWritePos)] = detectLPState;
             detectWritePos = (detectWritePos + 1) % kBufSize;
 
             // ---- Periodic pitch detection ----
@@ -161,11 +173,24 @@ public:
                 int phaseA = s.grainPhase;
                 int phaseB = (s.grainPhase + halfGs) % gs;
 
-                // Reset each head at its Hann zero-crossing (phase 0)
+                // ---- ACCUMULATED pitch shift ----
+                // Read heads run continuously at `ratio` speed. They are only
+                // reset at Hann zero-crossings when they've drifted into the
+                // danger zone (too close to write head or reading stale data).
+                // This lets the pitch shift accumulate over time, producing the
+                // "strong hold" effect like Antares/MetaTune.
                 if (phaseA == 0)
-                    s.readPosA = static_cast<double>((s.writePos - kLatency + kBufSize) % kBufSize);
+                {
+                    double dist = circularDist (s.writePos, s.readPosA);
+                    if (dist < kSafeMargin || dist > static_cast<double>(kBufSize - kSafeMargin))
+                        s.readPosA = static_cast<double>((s.writePos - kLatency + kBufSize) % kBufSize);
+                }
                 if (phaseB == 0)
-                    s.readPosB = static_cast<double>((s.writePos - kLatency + kBufSize) % kBufSize);
+                {
+                    double dist = circularDist (s.writePos, s.readPosB);
+                    if (dist < kSafeMargin || dist > static_cast<double>(kBufSize - kSafeMargin))
+                        s.readPosB = static_cast<double>((s.writePos - kLatency + kBufSize) % kBufSize);
+                }
 
                 // Hann crossfade windows (complementary: wA + wB ≈ 1.0)
                 float wA = 0.5f - 0.5f * std::cos (
@@ -181,18 +206,18 @@ public:
                 float output = sA * wA + sB * wB;
                 buffer.setSample (ch, i, output);
 
-                // Advance read positions at SHIFTED rate (this is the pitch shift)
+                // Advance read positions at SHIFTED rate (this IS the pitch shift)
                 s.readPosA += ratio;
                 s.readPosB += ratio;
 
                 // Wrap read positions within buffer
-                while (s.readPosA >= static_cast<double>(kBufSize))
+                if (s.readPosA >= static_cast<double>(kBufSize))
                     s.readPosA -= static_cast<double>(kBufSize);
-                while (s.readPosA < 0.0)
+                if (s.readPosA < 0.0)
                     s.readPosA += static_cast<double>(kBufSize);
-                while (s.readPosB >= static_cast<double>(kBufSize))
+                if (s.readPosB >= static_cast<double>(kBufSize))
                     s.readPosB -= static_cast<double>(kBufSize);
-                while (s.readPosB < 0.0)
+                if (s.readPosB < 0.0)
                     s.readPosB += static_cast<double>(kBufSize);
 
                 // Advance write position
@@ -239,6 +264,9 @@ private:
     static constexpr float kNoteExitThreshold  = 80.0f;          // Cents to leave (hysteresis)
     static constexpr int   kNoteHoldMin    = 3;                  // Analysis frames before committing
 
+    // Safety margin for read head drift check (samples)
+    static constexpr double kSafeMargin = 256.0;
+
     // Overshoot for "negative speed" snap
     static constexpr float kOvershootFactor = 1.2f;              // 20% overshoot at max speed
 
@@ -259,6 +287,10 @@ private:
     int analysisCounter = 0;
     float cachedDetectedHz = 0.0f;
     float lastValidDetectedHz = 0.0f;                           // For harmonic hysteresis
+
+    // Detection low-pass prefilter (~1200Hz cutoff, one-pole)
+    float detectLPState = 0.0f;
+    float detectLPCoeff = 0.15f;                                 // Updated in prepare()
 
     // Per-channel state — dual crossfading read heads
     struct ChannelState
@@ -306,11 +338,13 @@ private:
     float detectPitchYIN()
     {
         // ---- Step 1: Compute autocorrelation via FFT ----
+        // No analysis window — windowing biases the autocorrelation for YIN.
+        // Zero-padding to 2N (via kFFTSize = 2 * kAnalysisSize) prevents
+        // circular convolution artifacts.
         for (int i = 0; i < kAnalysisSize; ++i)
         {
             int idx = (detectWritePos - kAnalysisSize + i + kBufSize) % kBufSize;
-            fftWork[static_cast<size_t>(i)] =
-                detectBuf[static_cast<size_t>(idx)] * analysisWindow[static_cast<size_t>(i)];
+            fftWork[static_cast<size_t>(i)] = detectBuf[static_cast<size_t>(idx)];
         }
         for (int i = kAnalysisSize; i < kFFTSize * 2; ++i)
             fftWork[static_cast<size_t>(i)] = 0.0f;
@@ -548,9 +582,10 @@ private:
     // ========================================================================
     void updateSmoothRamp()
     {
-        // Speed 0 → slow glide (400ms), Speed 1 → instant snap (0.3ms)
-        double rampSeconds = 0.0003 + (1.0 - static_cast<double>(retuneSpeed))
-                                    * (1.0 - static_cast<double>(retuneSpeed)) * 0.4;
+        // Speed 0 → slow glide (400ms), Speed 1 → instant snap (< 1 sample)
+        // Squared curve makes high speeds feel "snappier"
+        double inv = 1.0 - static_cast<double>(retuneSpeed);
+        double rampSeconds = 0.00002 + inv * inv * 0.4;
         cachedRampSeconds = rampSeconds;
         if (sr > 0.0)
         {
@@ -560,6 +595,16 @@ private:
             smoothedRatio.setCurrentAndTargetValue (current);
             smoothedRatio.setTargetValue (target);
         }
+    }
+
+    // ========================================================================
+    //  Circular distance: how far readPos is behind writePos in ring buffer
+    // ========================================================================
+    double circularDist (int writeP, double readP) const
+    {
+        double d = static_cast<double>(writeP) - readP;
+        if (d < 0.0) d += static_cast<double>(kBufSize);
+        return d;
     }
 
     // ========================================================================
