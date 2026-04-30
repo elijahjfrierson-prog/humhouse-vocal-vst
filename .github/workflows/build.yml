@@ -90,14 +90,21 @@ jobs:
           path: artifacts/*
 
       # ---------- Windows packaging ----------
-      - name: Package Windows zip
+      - name: Build Inno Setup installer (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # Inno Setup is pre-installed on windows-2022 runners
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\humhouse-vocals.iss
           New-Item -ItemType Directory -Force -Path artifacts
+          Copy-Item "build\installer\HumHouse-Vocals-Setup-1.0.0.exe" -Destination "artifacts\HumHouse-Vocals-Installer.exe"
+
+      - name: Package Windows VST3 zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
           $vst3 = "build\HumHouseVocals_artefacts\Release\VST3\HumHouse Vocals.vst3"
-          $standalone = "build\HumHouseVocals_artefacts\Release\Standalone\HumHouse Vocals.exe"
-          Compress-Archive -Path $vst3,$standalone -DestinationPath "artifacts\HumHouse-Vocals-Windows-x64.zip"
+          Compress-Archive -Path $vst3 -DestinationPath "artifacts\HumHouse-Vocals-VST3-Windows-x64.zip"
 
       - name: Upload Windows artifacts
         if: runner.os == 'Windows'
