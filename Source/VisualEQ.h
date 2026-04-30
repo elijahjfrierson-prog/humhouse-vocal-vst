@@ -69,10 +69,10 @@ public:
         }
     }
 
-    void setBandFreq (int i, float f)   { if (i >= 0 && i < kNumBands && bands[i].frequency != f) { bands[i].frequency = f; updateCoefficients(i); } }
+    void setBandFreq (int i, float f)   { if (i >= 0 && i < kNumBands && bands[i].frequency != f) { bands[i].frequency = f; updateCoefficients(i); updateScCoefficients(i); } }
     void setBandGain (int i, float g)   { if (i >= 0 && i < kNumBands && bands[i].gain != g) { bands[i].gain = g; updateCoefficients(i); } }
-    void setBandQ    (int i, float q)   { if (i >= 0 && i < kNumBands && bands[i].q != q) { bands[i].q = q; updateCoefficients(i); } }
-    void setBandType (int i, int t)     { if (i >= 0 && i < kNumBands && bands[i].type != static_cast<EQBandType>(t)) { bands[i].type = static_cast<EQBandType>(t); updateCoefficients(i); } }
+    void setBandQ    (int i, float q)   { if (i >= 0 && i < kNumBands && bands[i].q != q) { bands[i].q = q; updateCoefficients(i); updateScCoefficients(i); } }
+    void setBandType (int i, int t)     { if (i >= 0 && i < kNumBands && bands[i].type != static_cast<EQBandType>(t)) { bands[i].type = static_cast<EQBandType>(t); updateCoefficients(i); updateScCoefficients(i); } }
     void setBandActive(int i, bool a)   { if (i >= 0 && i < kNumBands) { bands[i].active = a; } }
     void setBandDynamic(int i, bool d)  { if (i >= 0 && i < kNumBands) { bands[i].dynamic = d; } }
 
@@ -107,16 +107,15 @@ public:
             {
                 // Dynamic EQ: detect sidechain level, scale gain proportionally
                 // 1. Run sidechain bandpass to measure energy at this frequency
+                //    (sc coefficients are cached — only updated on freq/Q/type change)
                 scBuffer.setSize(numChannels, numSamples, false, false, true);
                 for (int ch = 0; ch < numChannels; ++ch)
                     scBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
-
-                updateScCoefficients(i);
                 juce::dsp::AudioBlock<float> scBlock(scBuffer);
                 juce::dsp::ProcessContextReplacing<float> scCtx(scBlock);
                 scFilters[i].process(scCtx);
 
-                // 2. Measure RMS of the filtered sidechain
+                // 2. Measure RMS of the filtered sidechain (sc coefficients cached — updated on freq/Q change)
                 float rms = 0.0f;
                 for (int ch = 0; ch < numChannels; ++ch)
                     rms = std::max(rms, scBuffer.getRMSLevel(ch, 0, numSamples));
@@ -195,6 +194,7 @@ private:
             bands[i].type = defaultTypes[i];
             bands[i].active = true;
             updateCoefficients(i);
+            updateScCoefficients(i);
         }
     }
 
@@ -237,27 +237,62 @@ private:
         *filters[static_cast<size_t>(index)].state = *coeffs;
     }
 
+    // Compute biquad coefficients directly into dynFilters — zero heap allocations
     void updateDynCoefficients (int index, float gainDb)
     {
         if (index < 0 || index >= kNumBands) return;
         auto& b = bands[static_cast<size_t>(index)];
         float freq = juce::jlimit(20.0f, static_cast<float>(sr) * 0.49f, b.frequency);
         float q    = juce::jlimit(0.1f, 30.0f, b.q);
-        float gain = juce::Decibels::decibelsToGain(gainDb);
 
-        juce::dsp::IIR::Coefficients<float>::Ptr coeffs;
+        float A     = std::pow(10.0f, gainDb / 40.0f);
+        float w0    = juce::MathConstants<float>::twoPi * freq / static_cast<float>(sr);
+        float cosw0 = std::cos(w0);
+        float sinw0 = std::sin(w0);
+        float alpha = sinw0 / (2.0f * q);
+
+        float b0, b1, b2, a0, a1, a2;
+
         switch (b.type)
         {
-            case EQBandType::Bell:
-                coeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, freq, q, gain); break;
             case EQBandType::LowShelf:
-                coeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, freq, q, gain); break;
+            {
+                float sqrtA = std::sqrt(A);
+                b0 =     A * ((A + 1) - (A - 1) * cosw0 + 2 * sqrtA * alpha);
+                b1 = 2 * A * ((A - 1) - (A + 1) * cosw0);
+                b2 =     A * ((A + 1) - (A - 1) * cosw0 - 2 * sqrtA * alpha);
+                a0 =          (A + 1) + (A - 1) * cosw0 + 2 * sqrtA * alpha;
+                a1 =    -2 * ((A - 1) + (A + 1) * cosw0);
+                a2 =          (A + 1) + (A - 1) * cosw0 - 2 * sqrtA * alpha;
+                break;
+            }
             case EQBandType::HighShelf:
-                coeffs = juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, freq, q, gain); break;
-            default:
-                coeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, freq, q, gain); break;
+            {
+                float sqrtA = std::sqrt(A);
+                b0 =      A * ((A + 1) + (A - 1) * cosw0 + 2 * sqrtA * alpha);
+                b1 = -2 * A * ((A - 1) + (A + 1) * cosw0);
+                b2 =      A * ((A + 1) + (A - 1) * cosw0 - 2 * sqrtA * alpha);
+                a0 =           (A + 1) - (A - 1) * cosw0 + 2 * sqrtA * alpha;
+                a1 =      2 * ((A - 1) - (A + 1) * cosw0);
+                a2 =           (A + 1) - (A - 1) * cosw0 - 2 * sqrtA * alpha;
+                break;
+            }
+            default: // Bell/Peak
+            {
+                b0 = 1 + alpha * A;
+                b1 = -2 * cosw0;
+                b2 = 1 - alpha * A;
+                a0 = 1 + alpha / A;
+                a1 = -2 * cosw0;
+                a2 = 1 - alpha / A;
+                break;
+            }
         }
-        *dynFilters[static_cast<size_t>(index)].state = *coeffs;
+
+        float invA0 = 1.0f / a0;
+        auto& c = dynFilters[static_cast<size_t>(index)].state->coefficients;
+        c.clearQuick();
+        c.add(b0 * invA0, b1 * invA0, b2 * invA0, a1 * invA0, a2 * invA0);
     }
 
     void updateScCoefficients (int index)
