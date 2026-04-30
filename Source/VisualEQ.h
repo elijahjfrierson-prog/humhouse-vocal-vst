@@ -76,10 +76,10 @@ public:
 
         for (int i = 0; i < kNumBands; ++i)
         {
-            if (bands[i].active && std::abs(bands[i].gain) > 0.01f
+            if (bands[i].active && (std::abs(bands[i].gain) > 0.01f
                 || bands[i].type == EQBandType::LowPass
                 || bands[i].type == EQBandType::HighPass
-                || bands[i].type == EQBandType::Notch)
+                || bands[i].type == EQBandType::Notch))
             {
                 filters[i].process(ctx);
             }

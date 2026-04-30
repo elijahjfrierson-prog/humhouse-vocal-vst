@@ -61,6 +61,20 @@ public:
     float getTargetPitchHz() const { return targetPitchHz.load(); }
     float getCorrectionCents() const { return correctionCents.load(); }
 
+    // Current detected note name for display
+    juce::String getDetectedNoteName() const
+    {
+        float hz = detectedPitchHz.load();
+        if (hz < 50.0f) return "--";
+        static const char* names[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+        float midi = 69.0f + 12.0f * std::log2(hz / 440.0f);
+        int note = static_cast<int>(std::round(midi));
+        int octave = (note / 12) - 1;
+        int pc = note % 12;
+        if (pc < 0) pc += 12;
+        return juce::String(names[pc]) + juce::String(octave);
+    }
+
     // Multiband compressor gain reduction feedback for UI
     float getMBGainReduction (int band) const { return multibandComp.getGainReduction(band); }
 

@@ -79,6 +79,18 @@ private:
 
     PitchHeatMap pitchHeatMap;
 
+    // Dedicated AutoTune section — prominent pitch display with key/scale
+    class AutoTuneSection : public juce::Component
+    {
+    public:
+        AutoTuneSection (HumHouseVocalsProcessor& p) : proc (p) {}
+        void paint (juce::Graphics& g) override;
+    private:
+        HumHouseVocalsProcessor& proc;
+    };
+
+    AutoTuneSection autoTuneSection;
+
     // Visual EQ display component
     class EQCurveDisplay : public juce::Component
     {
@@ -103,7 +115,7 @@ private:
     MBMeterDisplay mbMeterDisplay;
 
     // Module strips
-    ModuleStrip pitchStrip    { "PITCH" };
+    ModuleStrip pitchStrip    { "AUTO-TUNE" };
     ModuleStrip formantStrip  { "FORMANT" };
     ModuleStrip eqStrip       { "VISUAL EQ" };
     ModuleStrip compStrip     { "COMP" };
