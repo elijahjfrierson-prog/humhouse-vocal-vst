@@ -1,11 +1,11 @@
 ; HumHouse Vocals — Inno Setup Installer Script
-; Installs VST3 + Standalone for Windows (all DAWs)
+; Installs VST3 for Windows (all DAWs)
 ;
 ; Build with: iscc installer/humhouse-vocals.iss
 ; Requires Inno Setup 6+ (https://jrsoftware.org/isinfo.php)
 
 #define MyAppName      "HumHouse Vocals"
-#define MyAppVersion   "1.0.0"
+#define MyAppVersion   "1.2.0"
 #define MyAppPublisher "HumHouse"
 #define MyAppURL       "https://github.com/elijahjfrierson-prog/humhouse-vocal-vst"
 
@@ -16,20 +16,20 @@ AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
-DefaultDirName={autopf}\HumHouse\{#MyAppName}
+DefaultDirName={commoncf}\VST3
 DefaultGroupName={#MyAppName}
 LicenseFile=eula.txt
 OutputDir=..\build\installer
-OutputBaseFilename=HumHouse-Vocals-Setup-{#MyAppVersion}
+OutputBaseFilename=HumHouse-Vocals-Installer
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
+DisableDirPage=yes
 PrivilegesRequired=admin
-SetupIconFile=
-UninstallDisplayIcon={app}\{#MyAppName}.exe
+UsePreviousAppDir=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -41,18 +41,8 @@ Source: "..\build\HumHouseVocals_artefacts\Release\VST3\HumHouse Vocals.vst3\*";
     DestDir: "{commoncf}\VST3\HumHouse Vocals.vst3"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Standalone executable
-Source: "..\build\HumHouseVocals_artefacts\Release\Standalone\HumHouse Vocals.exe"; \
-    DestDir: "{app}"; Flags: ignoreversion
-
-[Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\HumHouse Vocals.exe"
-Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-
-[Run]
-Filename: "{app}\HumHouse Vocals.exe"; \
-    Description: "Launch {#MyAppName}"; \
-    Flags: nowait postinstall skipifsilent
-
 [UninstallDelete]
 Type: filesandordirs; Name: "{commoncf}\VST3\HumHouse Vocals.vst3"
+
+[Messages]
+WelcomeLabel2=This will install {#MyAppName} v{#MyAppVersion} VST3 plugin.%n%nThe plugin will be placed in your VST3 folder so FL Studio, Ableton, and other DAWs can find it automatically.%n%nAfter installation: FL Studio → Options → Manage Plugins → Start Scan
