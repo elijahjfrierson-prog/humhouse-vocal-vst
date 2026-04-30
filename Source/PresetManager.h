@@ -404,9 +404,14 @@ private:
             set("delayMix", 0.18f);
             set("delayDuck", 0.5f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -16.0f);
+
             setBool("doublerActive", true);
             set("doublerMix", 0.2f);
             set("doublerDetune", 8.0f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Trap Dark & Wet")
         {
@@ -431,17 +436,22 @@ private:
             set("satMode", 1.0f);             // tape saturation
             set("satMix", 0.4f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
             setBool("reverbActive", true);
             set("reverbShortMix", 0.2f);
-            set("reverbLongMix", 0.25f);      // heavy long verb
+            set("reverbLongMix", 0.25f);
             set("reverbDuck", 0.4f);
-            set("reverbPostEQ", 5000.0f);     // dark reverb tail
+            set("reverbPostEQ", 5000.0f);
 
             setBool("delayActive", true);
             set("delayTime", 400.0f);
             set("delayFeedback", 0.4f);
             set("delayMix", 0.2f);
             set("delayFilter", 4000.0f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Smooth R&B")
         {
@@ -485,9 +495,14 @@ private:
             set("reverbLongMix", 0.1f);
             set("reverbDuck", 0.5f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
             setBool("widthActive", true);
             set("widthAmount", 1.2f);
             set("widthMode", 0.0f);           // M/S
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "R&B Warm Intimate")
         {
@@ -513,6 +528,9 @@ private:
             set("satMode", 0.0f);
             set("satMix", 0.3f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
             setBool("tapeActive", true);
             set("tapeFlutter", 0.15f);
             set("tapeDrive", 0.15f);
@@ -520,6 +538,9 @@ private:
             setBool("reverbActive", true);
             set("reverbShortMix", 0.1f);
             set("reverbLongMix", 0.05f);
+            set("reverbDuck", 0.5f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Neo Soul Vintage")
         {
@@ -548,9 +569,15 @@ private:
             set("tapeFlutter", 0.4f);
             set("tapeDrive", 0.3f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
             setBool("reverbActive", true);
             set("reverbShortMix", 0.2f);
             set("reverbLongMix", 0.08f);
+            set("reverbDuck", 0.5f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Pop Radio Ready")
         {
@@ -592,6 +619,8 @@ private:
 
             setBool("widthActive", true);
             set("widthAmount", 1.15f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Pop Bright & Airy")
         {
@@ -600,17 +629,29 @@ private:
             set("snapAmount", 0.8f);
 
             set("veqF1", 110.0f);
-            set("veqG8", 3.0f);
+            set("veqG5", -1.0f);           // clean boxiness
+            set("veqG8", 3.0f);            // presence
+            set("veqG10", 1.5f);           // sparkle
             set("veqG11", 4.0f);            // lots of air
 
             set("compThreshold", -18.0f);
             set("compRatio", 3.5f);
             set("compAttack", 5.0f);
+            set("compRelease", 50.0f);
             set("compKnee", 8.0f);
+
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -16.0f);
+
+            setBool("satActive", true);
+            set("satDrive", 0.08f);
+            set("satMode", 0.0f);
+            set("satMix", 0.15f);
 
             setBool("reverbActive", true);
             set("reverbShortMix", 0.2f);
             set("reverbLongMix", 0.15f);
+            set("reverbDuck", 0.5f);
 
             setBool("widthActive", true);
             set("widthAmount", 1.3f);
@@ -618,6 +659,8 @@ private:
             setBool("doublerActive", true);
             set("doublerMix", 0.15f);
             set("doublerDetune", 6.0f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Rock Aggressive")
         {
@@ -654,6 +697,8 @@ private:
             set("delayTime", 120.0f);         // slapback
             set("delayFeedback", 0.1f);
             set("delayMix", 0.12f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Rock Warm Analog")
         {
@@ -681,9 +726,15 @@ private:
             set("tapeFlutter", 0.2f);
             set("tapeDrive", 0.25f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
             setBool("reverbActive", true);
             set("reverbShortMix", 0.2f);
             set("reverbLongMix", 0.1f);
+            set("reverbDuck", 0.5f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Lo-Fi Tape Vocal")
         {
@@ -711,6 +762,12 @@ private:
             set("lofiLP", 4000.0f);
             set("lofiBits", 12.0f);
             set("lofiDS", 3.0f);
+
+            setBool("reverbActive", true);
+            set("reverbShortMix", 0.08f);
+            set("reverbDuck", 0.6f);
+
+            set("limiterCeiling", -0.5f);
         }
         else if (name == "Telephone / Radio")
         {
@@ -733,6 +790,8 @@ private:
             set("lofiLP", 3500.0f);
             set("lofiBits", 10.0f);
             set("lofiDS", 4.0f);
+
+            set("limiterCeiling", -0.5f);
         }
         else if (name == "Vintage Saturated")
         {
@@ -753,10 +812,19 @@ private:
             set("satMode", 0.0f);             // tube
             set("satMix", 0.6f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
             setBool("tapeActive", true);
             set("tapeSpeed", 15.0f);
             set("tapeFlutter", 0.35f);
             set("tapeDrive", 0.35f);
+
+            setBool("reverbActive", true);
+            set("reverbShortMix", 0.1f);
+            set("reverbDuck", 0.6f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Robotic AutoTune")
         {
@@ -1008,6 +1076,8 @@ private:
 
             setBool("deEsserActive", true);
             set("deEsserThresh", -18.0f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Broadcast / Podcast")
         {
@@ -1055,11 +1125,20 @@ private:
             set("satMode", 2.0f);
             set("satMix", 0.4f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -14.0f);
+
             setBool("delayActive", true);
             set("delayTime", 100.0f);
             set("delayFeedback", 0.15f);
             set("delayMix", 0.2f);
             set("delayDuck", 0.8f);
+
+            setBool("reverbActive", true);
+            set("reverbShortMix", 0.08f);
+            set("reverbDuck", 0.7f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Trap Mumble Smooth")
         {
@@ -1089,8 +1168,13 @@ private:
             set("reverbLongMix", 0.1f);
             set("reverbDuck", 0.6f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
             setBool("widthActive", true);
             set("widthAmount", 1.15f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Drill Raw Vocal")
         {
@@ -1122,6 +1206,12 @@ private:
             set("delayTime", 150.0f);
             set("delayFeedback", 0.2f);
             set("delayMix", 0.12f);
+
+            setBool("reverbActive", true);
+            set("reverbShortMix", 0.08f);
+            set("reverbDuck", 0.7f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Rage Beat Vocal")
         {
@@ -1146,6 +1236,9 @@ private:
             set("satMode", 2.0f);
             set("satMix", 0.55f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -14.0f);
+
             setBool("widthActive", true);
             set("widthAmount", 1.5f);
             set("widthMode", 1.0f);
@@ -1153,6 +1246,14 @@ private:
             setBool("reverbActive", true);
             set("reverbShortMix", 0.1f);
             set("reverbDuck", 0.8f);
+
+            setBool("delayActive", true);
+            set("delayTime", 120.0f);
+            set("delayFeedback", 0.12f);
+            set("delayMix", 0.1f);
+            set("delayDuck", 0.7f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "808 Bass Vocal")
         {
@@ -1177,9 +1278,18 @@ private:
             set("satMode", 1.0f);
             set("satMix", 0.5f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
             setBool("tapeActive", true);
             set("tapeFlutter", 0.1f);
             set("tapeDrive", 0.3f);
+
+            setBool("reverbActive", true);
+            set("reverbShortMix", 0.08f);
+            set("reverbDuck", 0.6f);
+
+            set("limiterCeiling", -0.3f);
         }
         // === NEW R&B PRESETS ===
         else if (name == "R&B Falsetto Air")
@@ -1189,13 +1299,24 @@ private:
             set("snapAmount", 0.7f);
 
             set("veqF1", 120.0f);
-            set("veqG8", 2.0f);
-            set("veqG11", 4.5f);
+            set("veqG5", -1.0f);           // clean mids
+            set("veqG8", 2.0f);            // presence
+            set("veqG10", 1.5f);           // sparkle
+            set("veqG11", 4.5f);            // air
 
             set("compThreshold", -14.0f);
             set("compRatio", 2.5f);
             set("compAttack", 12.0f);
+            set("compRelease", 80.0f);
             set("compKnee", 14.0f);
+
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
+            setBool("satActive", true);
+            set("satDrive", 0.08f);
+            set("satMode", 0.0f);
+            set("satMix", 0.15f);
 
             setBool("reverbActive", true);
             set("reverbShortMix", 0.2f);
@@ -1209,6 +1330,8 @@ private:
             setBool("doublerActive", true);
             set("doublerMix", 0.15f);
             set("doublerDetune", 5.0f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "90s R&B Classic")
         {
@@ -1242,10 +1365,15 @@ private:
             set("reverbShortMix", 0.22f);
             set("reverbLongMix", 0.12f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
             setBool("delayActive", true);
             set("delayTime", 280.0f);
             set("delayFeedback", 0.2f);
             set("delayMix", 0.1f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Bedroom R&B")
         {
@@ -1275,9 +1403,14 @@ private:
             setBool("widthActive", true);
             set("widthAmount", 1.2f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
             setBool("doublerActive", true);
             set("doublerMix", 0.12f);
             set("doublerDetune", 6.0f);
+
+            set("limiterCeiling", -0.3f);
         }
         // === NEW POP PRESETS ===
         else if (name == "Pop Ballad Lush")
@@ -1288,14 +1421,25 @@ private:
 
             set("veqF1", 80.0f);
             set("veqG3", 1.5f);
+            set("veqG5", -1.0f);
             set("veqG8", 2.0f);
+            set("veqG10", 1.0f);
             set("veqG11", 2.5f);
 
             set("compThreshold", -16.0f);
             set("compRatio", 3.0f);
             set("compAttack", 8.0f);
+            set("compRelease", 70.0f);
             set("compKnee", 10.0f);
             set("thdMode", 1.0f);
+
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
+            setBool("satActive", true);
+            set("satDrive", 0.1f);
+            set("satMode", 0.0f);
+            set("satMix", 0.2f);
 
             setBool("reverbActive", true);
             set("reverbShortMix", 0.25f);
@@ -1310,6 +1454,8 @@ private:
 
             setBool("widthActive", true);
             set("widthAmount", 1.3f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "K-Pop Crystal")
         {
@@ -1337,9 +1483,16 @@ private:
             set("widthAmount", 1.25f);
             set("widthMode", 2.0f);
 
+            setBool("satActive", true);
+            set("satDrive", 0.1f);
+            set("satMode", 0.0f);
+            set("satMix", 0.15f);
+
             setBool("doublerActive", true);
             set("doublerMix", 0.18f);
             set("doublerDetune", 8.0f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Pop Punk Grit")
         {
@@ -1370,6 +1523,12 @@ private:
             set("delayTime", 110.0f);
             set("delayFeedback", 0.12f);
             set("delayMix", 0.15f);
+
+            setBool("reverbActive", true);
+            set("reverbShortMix", 0.1f);
+            set("reverbDuck", 0.7f);
+
+            set("limiterCeiling", -0.3f);
         }
         // === NEW ROCK PRESETS ===
         else if (name == "Metal Scream")
@@ -1402,6 +1561,8 @@ private:
             setBool("reverbActive", true);
             set("reverbShortMix", 0.15f);
             set("reverbDuck", 0.7f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Indie Folk Natural")
         {
@@ -1411,17 +1572,31 @@ private:
 
             set("veqF1", 80.0f);
             set("veqG3", 1.5f);
+            set("veqG5", -0.5f);
             set("veqG8", 1.0f);
+            set("veqG10", 1.0f);
             set("veqG11", 1.5f);
 
             set("compThreshold", -14.0f);
             set("compRatio", 2.0f);
             set("compAttack", 15.0f);
+            set("compRelease", 100.0f);
             set("compKnee", 14.0f);
+
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
+            setBool("satActive", true);
+            set("satDrive", 0.08f);
+            set("satMode", 0.0f);
+            set("satMix", 0.12f);
 
             setBool("reverbActive", true);
             set("reverbShortMix", 0.2f);
             set("reverbLongMix", 0.1f);
+            set("reverbDuck", 0.5f);
+
+            set("limiterCeiling", -0.3f);
         }
         // === NEW LO-FI PRESETS ===
         else if (name == "Vinyl Crackle Vox")
@@ -1447,11 +1622,16 @@ private:
             set("tapeFlutter", 0.7f);
             set("tapeDrive", 0.45f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
             setBool("lofiActive", true);
             set("lofiHP", 250.0f);
             set("lofiLP", 5000.0f);
             set("lofiBits", 14.0f);
             set("lofiDS", 2.0f);
+
+            set("limiterCeiling", -0.5f);
         }
         else if (name == "Bitcrushed Glitch")
         {
@@ -1477,11 +1657,16 @@ private:
             set("lofiBits", 6.0f);
             set("lofiDS", 8.0f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -14.0f);
+
             setBool("delayActive", true);
             set("delayTime", 170.0f);
             set("delayFeedback", 0.45f);
             set("delayMix", 0.2f);
             setBool("delayPingPong", true);
+
+            set("limiterCeiling", -0.5f);
         }
         // === NEW CREATIVE PRESETS ===
         else if (name == "Underwater Dream")
@@ -1517,7 +1702,17 @@ private:
             set("widthAmount", 1.8f);
             set("widthMode", 2.0f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
+            setBool("satActive", true);
+            set("satDrive", 0.08f);
+            set("satMode", 0.0f);
+            set("satMix", 0.12f);
+
             set("dryWet", 0.85f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Cathedral Choir")
         {
@@ -1548,10 +1743,20 @@ private:
             set("widthAmount", 1.6f);
             set("widthMode", 0.0f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
+            setBool("satActive", true);
+            set("satDrive", 0.06f);
+            set("satMode", 0.0f);
+            set("satMix", 0.1f);
+
             setBool("delayActive", true);
             set("delayTime", 800.0f);
             set("delayFeedback", 0.3f);
             set("delayMix", 0.1f);
+
+            set("limiterCeiling", -0.3f);
         }
         // === GENRE-SPECIFIC PRESETS ===
         else if (name == "Gospel Powerful")
@@ -1587,9 +1792,14 @@ private:
             setBool("widthActive", true);
             set("widthAmount", 1.3f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
             setBool("doublerActive", true);
             set("doublerMix", 0.2f);
             set("doublerDetune", 8.0f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Country Twang")
         {
@@ -1623,9 +1833,14 @@ private:
             set("delayFeedback", 0.15f);
             set("delayMix", 0.12f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
             setBool("reverbActive", true);
             set("reverbShortMix", 0.18f);
             set("reverbLongMix", 0.08f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Latin Reggaeton")
         {
@@ -1661,8 +1876,13 @@ private:
             set("delayFeedback", 0.25f);
             set("delayMix", 0.15f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -16.0f);
+
             setBool("widthActive", true);
             set("widthAmount", 1.2f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Afrobeats Vocal")
         {
@@ -1697,9 +1917,14 @@ private:
             set("delayFeedback", 0.2f);
             set("delayMix", 0.12f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
             setBool("doublerActive", true);
             set("doublerMix", 0.15f);
             set("doublerDetune", 7.0f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "EDM Festival Drop")
         {
@@ -1736,6 +1961,9 @@ private:
             setBool("widthActive", true);
             set("widthAmount", 1.7f);
             set("widthMode", 1.0f);
+
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -14.0f);
 
             setBool("doublerActive", true);
             set("doublerMix", 0.3f);
@@ -1888,6 +2116,11 @@ private:
             set("delayFeedback", 0.2f);
             set("delayMix", 0.1f);
             set("delayDuck", 0.6f);
+
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Drocett Trap Soul")
         {
@@ -1926,10 +2159,15 @@ private:
             set("doublerMix", 0.12f);
             set("doublerDetune", 7.0f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
             setBool("delayActive", true);
             set("delayTime", 220.0f);
             set("delayFeedback", 0.18f);
             set("delayMix", 0.12f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Drocett Late Night")
         {
@@ -1965,8 +2203,13 @@ private:
             set("reverbDuck", 0.35f);
             set("reverbPostEQ", 6000.0f);     // dark reverb tail
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -20.0f);
+
             setBool("widthActive", true);
             set("widthAmount", 1.3f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Drocett Falsetto Vibe")
         {
@@ -1998,10 +2241,20 @@ private:
             set("doublerDetune", 6.0f);
             set("doublerDelay", 20.0f);
 
+            setBool("deEsserActive", true);
+            set("deEsserThresh", -18.0f);
+
+            setBool("satActive", true);
+            set("satDrive", 0.06f);
+            set("satMode", 0.0f);
+            set("satMix", 0.1f);
+
             setBool("delayActive", true);
             set("delayTime", 450.0f);
             set("delayFeedback", 0.25f);
             set("delayMix", 0.12f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Nu Rock Dry Scream")
         {
@@ -2033,6 +2286,8 @@ private:
             set("deEsserReduce", -16.0f);
 
             // No reverb, no delay — bone dry
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Nu Rock Raw Edge")
         {
@@ -2065,6 +2320,8 @@ private:
             set("reverbShortSize", 0.15f);
             set("reverbShortMix", 0.08f);
             set("reverbDuck", 0.8f);
+
+            set("limiterCeiling", -0.3f);
         }
         else if (name == "Nu Rock Grit & Growl")
         {
@@ -2104,6 +2361,8 @@ private:
             set("delayTime", 90.0f);
             set("delayFeedback", 0.08f);
             set("delayMix", 0.1f);
+
+            set("limiterCeiling", -0.3f);
         }
     }
 
@@ -2175,6 +2434,9 @@ private:
         set("deEsserFreq", 7000.0f);
         set("deEsserThresh", -20.0f);
         set("deEsserReduce", -12.0f);
+        set("deEsserBW", 2.0f);
+        set("deEsserMode", 0.0f);
+        setBool("deEsserListen", false);
 
         // Saturation
         setBool("satActive", false);
@@ -2233,7 +2495,7 @@ private:
 
         // Master
         set("inputGain", 0.0f);
-        set("outputGain", 0.0f);
+        set("outputGain", 6.0f);
         set("dryWet", 1.0f);
     }
 };

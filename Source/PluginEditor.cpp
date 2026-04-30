@@ -119,16 +119,20 @@ void HumHouseVocalsEditor::ModuleStrip::resized()
     // Knobs fill remaining space
     if (knobs.size() > 0)
     {
-        int knobH = area.getHeight() - 14;
+        int labelH = 16;
         int knobW = area.getWidth() / std::max(1, knobs.size());
 
         for (int i = 0; i < knobs.size(); ++i)
         {
             auto col = area.removeFromLeft(knobW);
-            auto knobArea = col.removeFromTop(knobH - 14);
-            knobs[i]->setBounds(knobArea.reduced(2));
+            auto knobArea = col.removeFromTop(col.getHeight() - labelH);
+            knobs[i]->setBounds(knobArea.reduced(1));
             if (i < knobLabels.size())
-                knobLabels[i]->setBounds(col.removeFromTop(14));
+            {
+                knobLabels[i]->setBounds(col.removeFromTop(labelH));
+                knobLabels[i]->setFont(juce::Font(10.0f));
+                knobLabels[i]->setMinimumHorizontalScale(0.7f);
+            }
         }
     }
 }
@@ -389,10 +393,11 @@ void HumHouseVocalsEditor::setupModuleStrips()
     mbCompStrip.addKnob("GAIN", "Multiband Output Gain (dB)");
     addAndMakeVisible(mbCompStrip);
 
-    // DE-ESSER — Freq, Threshold, Reduction
+    // DE-ESSER — Freq, Threshold, Reduction, BW, Mode, Listen
     deEsserStrip.addKnob("FREQ", "De-Esser Center Frequency (Hz)");
     deEsserStrip.addKnob("THRESH", "De-Esser Threshold (dB)");
     deEsserStrip.addKnob("REDUCE", "De-Esser Reduction Amount (dB)");
+    deEsserStrip.addKnob("BW", "De-Esser Bandwidth (Q)");
     addAndMakeVisible(deEsserStrip);
 
     // SATURATION — Drive, Mix
@@ -520,6 +525,7 @@ void HumHouseVocalsEditor::attachParameters()
     attachSlider(*deEsserStrip.knobs[0], "deEsserFreq");
     attachSlider(*deEsserStrip.knobs[1], "deEsserThresh");
     attachSlider(*deEsserStrip.knobs[2], "deEsserReduce");
+    attachSlider(*deEsserStrip.knobs[3], "deEsserBW");
 
     // Saturation
     attachButton(satStrip.activeButton, "satActive");
@@ -945,10 +951,10 @@ void HumHouseVocalsEditor::resized()
     auto titleArea = area.removeFromTop(62);
 
     // Preset controls in the top-right
-    auto presetArea = titleArea.removeFromRight(360);
+    auto presetArea = titleArea.removeFromRight(420);
     auto presetRow1 = presetArea.removeFromTop(30).reduced(4, 4);
     deletePresetBtn.setBounds(presetRow1.removeFromRight(40));
-    savePresetBtn.setBounds(presetRow1.removeFromRight(50).reduced(2, 0));
+    savePresetBtn.setBounds(presetRow1.removeFromRight(70).reduced(2, 0));
     presetBox.setBounds(presetRow1);
 
     // Scale controls below presets

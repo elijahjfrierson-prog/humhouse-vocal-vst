@@ -2,13 +2,16 @@
 
 #include <JuceHeader.h>
 #include <cmath>
+#include <atomic>
 
 namespace humvocal
 {
 
-// Sibilance detector and reducer.  Uses a band-pass filter centred
-// around 5–9 kHz to isolate sibilant energy, then dynamically
-// attenuates that band when it exceeds the threshold.
+// FabFilter-style sibilance detector and reducer.
+// Uses a configurable band-pass filter to isolate sibilant energy,
+// then dynamically attenuates that band when it exceeds the threshold.
+// Supports split-band and wideband modes, adjustable Q, and
+// gain reduction metering.
 class DeEsser
 {
 public:
@@ -20,24 +23,30 @@ public:
         attenuator.prepare(spec);
         updateFilters();
         envelope = 0.0f;
+        grDb.store(0.0f);
 
-        // Pre-allocate sidechain buffer
         sidechainBuffer.setSize(2, blockSize);
     }
 
-    void setFrequency (float hz) { centreFreq = hz; updateFilters(); }
-    void setThreshold (float db) { thresholdDb = db; }
-    void setReduction (float db) { reductionDb = db; }
-    void setActive (bool on) { active = on; }
+    void setFrequency (float hz)  { centreFreq = hz; updateFilters(); }
+    void setThreshold (float db)  { thresholdDb = db; }
+    void setReduction (float db)  { reductionDb = db; }
+    void setActive (bool on)      { active = on; }
+    void setBandwidth (float q)   { bandwidth = q; updateFilters(); }
+    void setMode (int m)          { mode = m; }  // 0=split-band, 1=wideband
+    void setListen (bool on)      { listenMode = on; }
+
+    // UI readback: current gain reduction in dB (always <= 0)
+    float getGainReductionDb() const { return grDb.load(); }
 
     void process (juce::AudioBuffer<float>& buffer)
     {
-        if (!active) return;
+        if (!active) { grDb.store(0.0f); return; }
 
         const int numSamples = buffer.getNumSamples();
         const int numChannels = buffer.getNumChannels();
 
-        // Use pre-allocated buffer (resize only if needed, no alloc in steady state)
+        // Copy input to sidechain buffer for band-pass filtering
         sidechainBuffer.setSize(numChannels, numSamples, false, false, true);
         for (int ch = 0; ch < numChannels; ++ch)
             sidechainBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
@@ -46,8 +55,11 @@ public:
         juce::dsp::ProcessContextReplacing<float> scCtx (scBlock);
         detector.process(scCtx);
 
-        float attackCoeff  = std::exp(-1.0f / (static_cast<float>(sr) * 0.001f));
-        float releaseCoeff = std::exp(-1.0f / (static_cast<float>(sr) * 0.020f));
+        // Envelope follower coefficients
+        float attackCoeff  = std::exp(-1.0f / (static_cast<float>(sr) * 0.0005f));  // 0.5ms attack
+        float releaseCoeff = std::exp(-1.0f / (static_cast<float>(sr) * 0.015f));   // 15ms release
+
+        float peakGR = 0.0f;
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -66,17 +78,41 @@ public:
             if (envDb > thresholdDb)
             {
                 float overDb = envDb - thresholdDb;
-                float reductionApplied = std::min(overDb, -reductionDb);
+                // Soft-knee: smooth onset of reduction
+                float knee = 3.0f;
+                float effectiveOver = overDb;
+                if (overDb < knee)
+                    effectiveOver = (overDb * overDb) / (2.0f * knee);
+                float reductionApplied = std::min(effectiveOver, -reductionDb);
                 gain = juce::Decibels::decibelsToGain(-reductionApplied);
+                peakGR = std::max(peakGR, reductionApplied);
             }
 
-            for (int ch = 0; ch < numChannels; ++ch)
+            if (listenMode)
             {
-                float dry = buffer.getSample(ch, i);
-                float sib = sidechainBuffer.getSample(ch, i);
-                buffer.setSample(ch, i, dry - sib * (1.0f - gain));
+                // Listen mode: output only the sibilance band
+                for (int ch = 0; ch < numChannels; ++ch)
+                    buffer.setSample(ch, i, sidechainBuffer.getSample(ch, i));
+            }
+            else if (mode == 1)
+            {
+                // Wideband mode: attenuate the full signal
+                for (int ch = 0; ch < numChannels; ++ch)
+                    buffer.setSample(ch, i, buffer.getSample(ch, i) * gain);
+            }
+            else
+            {
+                // Split-band mode: only attenuate the sibilance band
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    float dry = buffer.getSample(ch, i);
+                    float sib = sidechainBuffer.getSample(ch, i);
+                    buffer.setSample(ch, i, dry - sib * (1.0f - gain));
+                }
             }
         }
+
+        grDb.store(-peakGR);
     }
 
 private:
@@ -85,7 +121,11 @@ private:
     float centreFreq = 7000.0f;
     float thresholdDb = -20.0f;
     float reductionDb = -12.0f;
+    float bandwidth = 2.0f;
+    int mode = 0;         // 0=split-band, 1=wideband
+    bool listenMode = false;
     float envelope = 0.0f;
+    std::atomic<float> grDb { 0.0f };
 
     juce::AudioBuffer<float> sidechainBuffer;
 
@@ -97,8 +137,8 @@ private:
     void updateFilters()
     {
         if (sr <= 0.0) return;
-        *detector.state = *juce::dsp::IIR::Coefficients<float>::makeBandPass(sr, centreFreq, 2.0f);
-        *attenuator.state = *juce::dsp::IIR::Coefficients<float>::makeBandPass(sr, centreFreq, 2.0f);
+        *detector.state = *juce::dsp::IIR::Coefficients<float>::makeBandPass(sr, centreFreq, bandwidth);
+        *attenuator.state = *juce::dsp::IIR::Coefficients<float>::makeBandPass(sr, centreFreq, bandwidth);
     }
 };
 

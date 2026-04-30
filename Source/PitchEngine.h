@@ -94,6 +94,7 @@ public:
     void setPitchSustain (float s)            { pitchSustain = s; }
     void setNoteStabilizer (bool on)          { stabilizer = on; }
     void setFormantPreserve (bool /*on*/)     { /* no-op */ }
+    void setBypass (bool on)                  { bypassed = on; }
 
     // --- Readback for UI ---
     float getDetectedPitchHz() const  { return lastDetectedHz; }
@@ -284,6 +285,7 @@ private:
     float snapAmount    = 1.0f;
     float pitchSustain  = 0.5f;
     bool  stabilizer    = true;
+    bool  bypassed      = false;
 
     // Note stabilizer state (MetaTune-style)
     std::array<float, kStabHistSize> stabHistory {};
@@ -455,17 +457,21 @@ private:
         float medianHz = sorted[static_cast<size_t>(validCount / 2)];
 
         // Hysteresis: once locked onto a note, require larger deviation to leave
+        // pitchSustain modulates how "sticky" the note lock is
+        float exitThresh = kNoteExitThreshold + pitchSustain * 50.0f;
+        int holdMin = static_cast<int>(kNoteHoldMin + pitchSustain * 5.0f);
+
         if (lockedNoteHz > 0.0f)
         {
             float centsDiff = 1200.0f * std::log2 (medianHz / lockedNoteHz);
 
             // Sticky note: higher threshold to leave than to enter
-            if (std::abs (centsDiff) < kNoteExitThreshold)
+            if (std::abs (centsDiff) < exitThresh)
                 return lockedNoteHz;  // Stay locked
 
             // Note is changing — require hold time before committing
             ++noteHoldCounter;
-            if (noteHoldCounter < kNoteHoldMin)
+            if (noteHoldCounter < holdMin)
                 return lockedNoteHz;  // Still holding old note
         }
 
@@ -480,6 +486,17 @@ private:
     // ========================================================================
     void updateCorrection()
     {
+        // When bypassed, force ratio to 1.0 (pass-through) but still run
+        // audio through the ring buffer so latency stays consistent
+        if (bypassed)
+        {
+            smoothedRatio.setTargetValue (1.0);
+            lastDetectedHz = 0.0f;
+            lastTargetHz = 0.0f;
+            lastCorrectionCents = 0.0f;
+            return;
+        }
+
         float detectedHz = cachedDetectedHz;
         lastDetectedHz = detectedHz;
 

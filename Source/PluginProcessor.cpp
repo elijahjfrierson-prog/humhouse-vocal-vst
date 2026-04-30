@@ -67,6 +67,9 @@ HumHouseVocalsProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserFreq",   "De-Esser Freq",   3000.0f, 12000.0f, 7000.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserThresh", "De-Esser Thresh",  -40.0f, 0.0f, -20.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserReduce", "De-Esser Reduce",  -24.0f, 0.0f, -12.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserBW",     "De-Esser BW",      0.5f, 6.0f, 2.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("deEsserMode",   "De-Esser Mode",    0.0f, 1.0f, 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterBool>  ("deEsserListen", "De-Esser Listen",  false));
 
     // --- SATURATION ---
     params.push_back (std::make_unique<juce::AudioParameterBool>  ("satActive", "Saturation Active", false));
@@ -139,7 +142,7 @@ HumHouseVocalsProcessor::createParameterLayout()
 
     // --- MASTER ---
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("inputGain",  "Input Gain",  -24.0f, 24.0f, 0.0f));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> ("outputGain", "Output Gain", -24.0f, 24.0f, 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> ("outputGain", "Output Gain", -24.0f, 24.0f, 6.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> ("dryWet",     "Dry/Wet",     0.0f, 1.0f, 1.0f));
 
     return { params.begin(), params.end() };
@@ -245,9 +248,14 @@ void HumHouseVocalsProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         // 0. Noise Gate (first in chain — removes noise before processing)
         noiseGate.process(buffer);
 
-        // 1. Pitch Correction (only when active and input has audio)
-        if (apvts.getRawParameterValue("pitchActive")->load() > 0.5f)
+        // 1. Pitch Correction — always route through for consistent latency
+        //    When inactive, engine passes audio through its ring buffer (ratio=1.0)
+        //    so DAW latency compensation stays aligned
+        {
+            bool pitchOn = apvts.getRawParameterValue("pitchActive")->load() > 0.5f;
+            pitchEngine.setBypass(!pitchOn);
             pitchEngine.process(buffer);
+        }
 
         // Update pitch feedback atomics
         detectedPitchHz.store(pitchEngine.getDetectedPitchHz());
@@ -405,6 +413,9 @@ void HumHouseVocalsProcessor::updateModuleParameters()
     deEsser.setFrequency(apvts.getRawParameterValue("deEsserFreq")->load());
     deEsser.setThreshold(apvts.getRawParameterValue("deEsserThresh")->load());
     deEsser.setReduction(apvts.getRawParameterValue("deEsserReduce")->load());
+    deEsser.setBandwidth(apvts.getRawParameterValue("deEsserBW")->load());
+    deEsser.setMode(static_cast<int>(apvts.getRawParameterValue("deEsserMode")->load()));
+    deEsser.setListen(apvts.getRawParameterValue("deEsserListen")->load() > 0.5f);
 
     // Saturation
     saturation.setActive(apvts.getRawParameterValue("satActive")->load() > 0.5f);
