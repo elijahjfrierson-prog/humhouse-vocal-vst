@@ -41,6 +41,7 @@ public:
         sr = sampleRate;
         juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32>(blockSize), 2 };
         for (auto& f : filters) f.prepare(spec);
+        for (auto& f : dynFilters) f.prepare(spec);
         for (auto& f : scFilters) f.prepare(spec);
 
         setDefaultFrequencies();
@@ -126,16 +127,12 @@ public:
                 constexpr float dynRange  = 20.0f;
                 float dynScale = juce::jlimit(0.0f, 1.0f, (rmsDb - dynThresh) / dynRange);
 
-                // 4. Temporarily adjust gain and apply
-                float origGain = bands[i].gain;
-                float scaledGain = origGain * dynScale;
-                if (std::abs(scaledGain) > 0.01f || isFilter)
+                // 4. Apply scaled gain via separate dynFilters (keeps filters[] stable for UI)
+                float scaledGain = bands[i].gain * dynScale;
+                if (std::abs(scaledGain) > 0.01f)
                 {
-                    bands[i].gain = scaledGain;
-                    updateCoefficients(i);
-                    filters[i].process(ctx);
-                    bands[i].gain = origGain;
-                    updateCoefficients(i);
+                    updateDynCoefficients(i, scaledGain);
+                    dynFilters[i].process(ctx);
                 }
             }
         }
@@ -173,7 +170,8 @@ private:
     using IIRFilter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
                                                       juce::dsp::IIR::Coefficients<float>>;
     std::array<IIRFilter, kNumBands> filters;
-    std::array<IIRFilter, kNumBands> scFilters; // sidechain bandpass for dynamic EQ
+    std::array<IIRFilter, kNumBands> dynFilters; // separate filters for dynamic EQ (avoids mutating filters[] visible to UI)
+    std::array<IIRFilter, kNumBands> scFilters;  // sidechain bandpass for dynamic EQ
     juce::AudioBuffer<float> scBuffer;
 
     void setDefaultFrequencies()
@@ -237,6 +235,29 @@ private:
         }
 
         *filters[static_cast<size_t>(index)].state = *coeffs;
+    }
+
+    void updateDynCoefficients (int index, float gainDb)
+    {
+        if (index < 0 || index >= kNumBands) return;
+        auto& b = bands[static_cast<size_t>(index)];
+        float freq = juce::jlimit(20.0f, static_cast<float>(sr) * 0.49f, b.frequency);
+        float q    = juce::jlimit(0.1f, 30.0f, b.q);
+        float gain = juce::Decibels::decibelsToGain(gainDb);
+
+        juce::dsp::IIR::Coefficients<float>::Ptr coeffs;
+        switch (b.type)
+        {
+            case EQBandType::Bell:
+                coeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, freq, q, gain); break;
+            case EQBandType::LowShelf:
+                coeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, freq, q, gain); break;
+            case EQBandType::HighShelf:
+                coeffs = juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, freq, q, gain); break;
+            default:
+                coeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, freq, q, gain); break;
+        }
+        *dynFilters[static_cast<size_t>(index)].state = *coeffs;
     }
 
     void updateScCoefficients (int index)

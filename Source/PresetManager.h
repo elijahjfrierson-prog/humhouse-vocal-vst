@@ -2244,6 +2244,15 @@ private:
     void resetToDefaults (const std::function<void(const juce::String&, float)>& set,
                           const std::function<void(const juce::String&, bool)>& setBool)
     {
+        // Noise Gate
+        setBool("gateActive", false);
+        set("gateThreshold", -40.0f);
+        set("gateRatio", 100.0f);
+        set("gateAttack", 0.1f);
+        set("gateHold", 50.0f);
+        set("gateRelease", 100.0f);
+        set("gateRange", -80.0f);
+
         // Visual EQ (12-band)
         setBool("veqActive", true);
         {
@@ -2267,6 +2276,7 @@ private:
         set("compRelease", 50.0f);
         set("compMakeup", 0.0f);
         set("compKnee", 6.0f);
+        set("compOutputGain", 0.0f);
         setBool("compAutoGain", true);
         setBool("autoLevel", false);
         set("autoLevelTarget", -14.0f);
@@ -2283,6 +2293,7 @@ private:
             set("mbRel"    + sb, 50.0f);
             set("mbMakeup" + sb, 0.0f);
         }
+        set("mbOutputGain", 0.0f);
 
         // De-Esser
         setBool("deEsserActive", true);
@@ -2355,6 +2366,7 @@ private:
         setBool("limiterActive", true);
         set("limiterCeiling", -0.3f);
         set("limiterRelease", 50.0f);
+        set("limiterOutputGain", 0.0f);
 
         // Master
         set("inputGain", 0.0f);
