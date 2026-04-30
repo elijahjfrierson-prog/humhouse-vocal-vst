@@ -97,8 +97,9 @@ public:
             if (!bands[i].active || (!hasGain && !isFilter))
                 continue;
 
-            if (!bands[i].dynamic)
+            if (!bands[i].dynamic || isFilter)
             {
+                // Static path (also used for HP/LP/Notch where gain isn't used)
                 filters[i].process(ctx);
             }
             else

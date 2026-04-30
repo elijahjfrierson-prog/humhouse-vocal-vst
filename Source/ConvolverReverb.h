@@ -23,6 +23,12 @@ public:
         juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32>(blockSize), 2 };
         convolution.prepare(spec);
         wetBuffer.setSize(2, blockSize);
+
+        // Pre-allocate IR buffers at max size to avoid heap allocs on audio thread
+        int maxIR = static_cast<int>(4.0 * sr) + static_cast<int>(200.0f * 0.001f * static_cast<float>(sr));
+        irBuffer.setSize(1, maxIR);
+        stereoIRBuffer.setSize(2, maxIR);
+
         rebuildIR();
     }
 
@@ -94,6 +100,8 @@ private:
 
     juce::dsp::Convolution convolution;
     juce::AudioBuffer<float> wetBuffer;
+    juce::AudioBuffer<float> irBuffer;       // pre-allocated in prepare()
+    juce::AudioBuffer<float> stereoIRBuffer; // pre-allocated in prepare()
 
     void rebuildIR()
     {
@@ -101,26 +109,23 @@ private:
 
         int irLen = static_cast<int>(decaySec * sr);
         irLen = std::max(irLen, 256);
-        // Cap at 4 seconds to keep memory and CPU sane
         irLen = std::min(irLen, static_cast<int>(4.0 * sr));
 
         int preDelaySamples = static_cast<int>(preDelayMs * 0.001f * static_cast<float>(sr));
-
         int totalLen = preDelaySamples + irLen;
-        juce::AudioBuffer<float> ir(1, totalLen);
-        ir.clear();
 
-        float* data = ir.getWritePointer(0);
+        // Use pre-allocated buffers (sized in prepare()) — no heap allocs
+        jassert(totalLen <= irBuffer.getNumSamples());
+        irBuffer.clear(0, 0, totalLen);
+        float* data = irBuffer.getWritePointer(0);
 
-        // Generate synthetic IR: filtered noise with exponential decay
         std::mt19937 rng(42);
         std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
 
-        float decay60 = decaySec; // RT60
-        float decayRate = -6.9078f / (decay60 * static_cast<float>(sr)); // ln(0.001) / (RT60 * sr)
+        float decay60 = decaySec;
+        float decayRate = -6.9078f / (decay60 * static_cast<float>(sr));
 
-        // LP filter state for damping (simple one-pole)
-        float lpCoeff = 1.0f - damping * 0.9f; // higher damping = more filtering
+        float lpCoeff = 1.0f - damping * 0.9f;
         float lpState = 0.0f;
 
         for (int i = 0; i < irLen; ++i)
@@ -131,7 +136,6 @@ private:
             data[preDelaySamples + i] = lpState * envelope;
         }
 
-        // Normalize IR
         float peak = 0.0f;
         for (int i = 0; i < totalLen; ++i)
             peak = std::max(peak, std::abs(data[i]));
@@ -142,17 +146,17 @@ private:
                 data[i] *= norm;
         }
 
-        // Reverse if enabled (FL Studio reverse reverb effect)
         if (reverse)
         {
             for (int i = 0; i < totalLen / 2; ++i)
                 std::swap(data[i], data[totalLen - 1 - i]);
         }
 
-        // Make stereo (identical L/R for mono compatibility)
+        // Copy into pre-allocated stereo buffer, then pass a copy to the convolver
+        // (loadImpulseResponse takes ownership via move, so we must copy)
         juce::AudioBuffer<float> stereoIR(2, totalLen);
-        stereoIR.copyFrom(0, 0, ir, 0, 0, totalLen);
-        stereoIR.copyFrom(1, 0, ir, 0, 0, totalLen);
+        stereoIR.copyFrom(0, 0, irBuffer, 0, 0, totalLen);
+        stereoIR.copyFrom(1, 0, irBuffer, 0, 0, totalLen);
 
         convolution.loadImpulseResponse(
             std::move(stereoIR), sr,
