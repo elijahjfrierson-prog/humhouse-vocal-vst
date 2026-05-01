@@ -134,5 +134,25 @@ private:
     // Pre-allocated dry buffer for dry/wet mix
     juce::AudioBuffer<float> dryBuffer;
 
+    // Cached parameter pointers (avoids juce::String construction every processBlock)
+    struct CachedEQParams {
+        std::atomic<float>* freq = nullptr;
+        std::atomic<float>* gain = nullptr;
+        std::atomic<float>* q    = nullptr;
+        std::atomic<float>* type = nullptr;
+        std::atomic<float>* dyn  = nullptr;
+    };
+    struct CachedMBParams {
+        std::atomic<float>* thresh = nullptr;
+        std::atomic<float>* ratio  = nullptr;
+        std::atomic<float>* attack = nullptr;
+        std::atomic<float>* rel    = nullptr;
+        std::atomic<float>* makeup = nullptr;
+    };
+    CachedEQParams cachedEQ[12];
+    CachedMBParams cachedMB[5];
+    bool paramsCached = false;
+    void cacheParameterPointers();
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HumHouseVocalsProcessor)
 };

@@ -15,6 +15,7 @@ void HumHouseVocalsEditor::ModuleStrip::addKnob (const juce::String& label, cons
     auto* knob = knobs.add(new juce::Slider(juce::Slider::RotaryHorizontalVerticalDrag,
                                              juce::Slider::NoTextBox));
     knob->setPopupDisplayEnabled(true, true, this);
+    knob->setMouseDragSensitivity(480);  // less touchy (JUCE default is 250)
     if (tooltip.isNotEmpty())
         knob->setTooltip(tooltip);
     else
@@ -99,6 +100,7 @@ HumHouseVocalsEditor::EQDetailSection::EQDetailSection()
         qKnobs[i].setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         qKnobs[i].setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         qKnobs[i].setPopupDisplayEnabled(true, true, this);
+        qKnobs[i].setMouseDragSensitivity(480);  // less touchy
         qKnobs[i].setTooltip("Band " + juce::String(i + 1) + " Q (bandwidth)");
         addAndMakeVisible(qKnobs[i]);
 
@@ -191,6 +193,7 @@ HumHouseVocalsEditor::HumHouseVocalsEditor (HumHouseVocalsProcessor& p)
         s->setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         s->setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         s->setPopupDisplayEnabled(true, true, this);
+        s->setMouseDragSensitivity(480);  // less touchy
         addAndMakeVisible(s);
     }
     for (auto* l : { &inputGainLabel, &outputGainLabel, &dryWetLabel })
@@ -291,7 +294,12 @@ void HumHouseVocalsEditor::refreshPresetList()
     auto names = processorRef.getPresetManager().getPresetNames();
     for (int i = 0; i < names.size(); ++i)
         presetBox.addItem(names[i], i + 1);
-    if (presetBox.getNumItems() > 0)
+
+    // Restore the persisted preset selection (or default to 0)
+    int savedIdx = processorRef.getPresetManager().getCurrentPresetIndex();
+    if (savedIdx >= 0 && savedIdx < presetBox.getNumItems())
+        presetBox.setSelectedItemIndex(savedIdx, juce::dontSendNotification);
+    else if (presetBox.getNumItems() > 0)
         presetBox.setSelectedItemIndex(0, juce::dontSendNotification);
 }
 
