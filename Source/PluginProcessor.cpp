@@ -177,7 +177,33 @@ void HumHouseVocalsProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     // Pre-allocate dry buffer
     dryBuffer.setSize(2, samplesPerBlock);
 
+    // Cache parameter pointers to avoid juce::String construction every processBlock
+    cacheParameterPointers();
+
     setLatencySamples(0);
+}
+
+void HumHouseVocalsProcessor::cacheParameterPointers()
+{
+    for (int i = 0; i < 12; ++i)
+    {
+        auto si = juce::String(i + 1);
+        cachedEQ[i].freq = apvts.getRawParameterValue("veqF" + si);
+        cachedEQ[i].gain = apvts.getRawParameterValue("veqG" + si);
+        cachedEQ[i].q    = apvts.getRawParameterValue("veqQ" + si);
+        cachedEQ[i].type = apvts.getRawParameterValue("veqT" + si);
+        cachedEQ[i].dyn  = apvts.getRawParameterValue("veqDyn" + si);
+    }
+    for (int b = 0; b < 5; ++b)
+    {
+        auto sb = juce::String(b + 1);
+        cachedMB[b].thresh = apvts.getRawParameterValue("mbThresh" + sb);
+        cachedMB[b].ratio  = apvts.getRawParameterValue("mbRatio"  + sb);
+        cachedMB[b].attack = apvts.getRawParameterValue("mbAttack" + sb);
+        cachedMB[b].rel    = apvts.getRawParameterValue("mbRel"    + sb);
+        cachedMB[b].makeup = apvts.getRawParameterValue("mbMakeup" + sb);
+    }
+    paramsCached = true;
 }
 
 void HumHouseVocalsProcessor::releaseResources() {}
@@ -369,18 +395,20 @@ void HumHouseVocalsProcessor::updateModuleParameters()
     noiseGate.setRelease(apvts.getRawParameterValue("gateRelease")->load());
     noiseGate.setRange(apvts.getRawParameterValue("gateRange")->load());
 
-    // Visual EQ (12-band)
+    // Visual EQ (12-band) — use cached pointers (no juce::String alloc)
     visualEQ.setActive(apvts.getRawParameterValue("veqActive")->load() > 0.5f);
-    for (int i = 0; i < 12; ++i)
+    if (paramsCached)
     {
-        auto si = juce::String(i + 1);
-        float freq = apvts.getRawParameterValue("veqF" + si)->load();
-        float gain = apvts.getRawParameterValue("veqG" + si)->load();
-        float q    = apvts.getRawParameterValue("veqQ" + si)->load();
-        int   type = static_cast<int>(apvts.getRawParameterValue("veqT" + si)->load());
-        bool  dyn  = apvts.getRawParameterValue("veqDyn" + si)->load() > 0.5f;
-        visualEQ.setBand(i, freq, gain, q, static_cast<humvocal::EQBandType>(type), true);
-        visualEQ.setBandDynamic(i, dyn);
+        for (int i = 0; i < 12; ++i)
+        {
+            float freq = cachedEQ[i].freq->load();
+            float gain = cachedEQ[i].gain->load();
+            float q    = cachedEQ[i].q->load();
+            int   type = static_cast<int>(cachedEQ[i].type->load());
+            bool  dyn  = cachedEQ[i].dyn->load() > 0.5f;
+            visualEQ.setBand(i, freq, gain, q, static_cast<humvocal::EQBandType>(type), true);
+            visualEQ.setBandDynamic(i, dyn);
+        }
     }
 
     // Compressor
@@ -397,18 +425,20 @@ void HumHouseVocalsProcessor::updateModuleParameters()
     compressor.setTHDMode(static_cast<int>(apvts.getRawParameterValue("thdMode")->load()));
     compressor.setOutputGain(apvts.getRawParameterValue("compOutputGain")->load());
 
-    // Multiband Compressor
+    // Multiband Compressor — use cached pointers (no juce::String alloc)
     multibandComp.setActive(apvts.getRawParameterValue("mbActive")->load() > 0.5f);
-    for (int b = 0; b < 5; ++b)
+    if (paramsCached)
     {
-        auto sb = juce::String(b + 1);
-        multibandComp.setBandParams(b,
-            apvts.getRawParameterValue("mbThresh" + sb)->load(),
-            apvts.getRawParameterValue("mbRatio"  + sb)->load(),
-            apvts.getRawParameterValue("mbAttack" + sb)->load(),
-            apvts.getRawParameterValue("mbRel"    + sb)->load(),
-            apvts.getRawParameterValue("mbMakeup" + sb)->load(),
-            1.0f);
+        for (int b = 0; b < 5; ++b)
+        {
+            multibandComp.setBandParams(b,
+                cachedMB[b].thresh->load(),
+                cachedMB[b].ratio->load(),
+                cachedMB[b].attack->load(),
+                cachedMB[b].rel->load(),
+                cachedMB[b].makeup->load(),
+                1.0f);
+        }
     }
     multibandComp.setOutputGain(apvts.getRawParameterValue("mbOutputGain")->load());
 
@@ -547,6 +577,13 @@ void HumHouseVocalsProcessor::setStateInformation (const void* data, int sizeInB
         }
 
         apvts.replaceState (state);
+
+        // Restore the preset index so the combo-box shows the correct name
+        if (state.hasProperty("presetIndex") && presetManager)
+        {
+            int idx = static_cast<int>(state.getProperty("presetIndex"));
+            presetManager->setCurrentPresetIndex(idx);
+        }
     }
 }
 
