@@ -88,6 +88,8 @@ public:
         juce::dsp::AudioBlock<float> block (buffer);
         juce::dsp::ProcessContextReplacing<float> ctx (block);
 
+        bool scBufferReady = false;  // lazily allocate sidechain buffer only if needed
+
         for (int i = 0; i < kNumBands; ++i)
         {
             bool hasGain = std::abs(bands[i].gain) > 0.01f;
@@ -100,33 +102,33 @@ public:
 
             if (!bands[i].dynamic || isFilter)
             {
-                // Static path (also used for HP/LP/Notch where gain isn't used)
                 filters[i].process(ctx);
             }
             else
             {
-                // Dynamic EQ: detect sidechain level, scale gain proportionally
-                // 1. Run sidechain bandpass to measure energy at this frequency
-                //    (sc coefficients are cached — only updated on freq/Q/type change)
-                scBuffer.setSize(numChannels, numSamples, false, false, true);
+                // Dynamic EQ: lazily prepare sidechain buffer once
+                if (!scBufferReady)
+                {
+                    scBuffer.setSize(numChannels, numSamples, false, false, true);
+                    scBufferReady = true;
+                }
                 for (int ch = 0; ch < numChannels; ++ch)
                     scBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
                 juce::dsp::AudioBlock<float> scBlock(scBuffer);
                 juce::dsp::ProcessContextReplacing<float> scCtx(scBlock);
                 scFilters[i].process(scCtx);
 
-                // 2. Measure RMS of the filtered sidechain (sc coefficients cached — updated on freq/Q change)
+                // Fast RMS using raw pointer
                 float rms = 0.0f;
                 for (int ch = 0; ch < numChannels; ++ch)
                     rms = std::max(rms, scBuffer.getRMSLevel(ch, 0, numSamples));
                 float rmsDb = juce::Decibels::gainToDecibels(rms, -80.0f);
 
-                // 3. Scale: gain is fully applied above -20dB, fades below
                 constexpr float dynThresh = -30.0f;
                 constexpr float dynRange  = 20.0f;
                 float dynScale = juce::jlimit(0.0f, 1.0f, (rmsDb - dynThresh) / dynRange);
 
-                // 4. Apply scaled gain via separate dynFilters (keeps filters[] stable for UI)
                 float scaledGain = bands[i].gain * dynScale;
                 if (std::abs(scaledGain) > 0.01f)
                 {

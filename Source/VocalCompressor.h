@@ -39,15 +39,27 @@ public:
 
         float attackCoeff  = std::exp(-1.0f / (static_cast<float>(sr) * attackMs * 0.001f));
         float releaseCoeff = std::exp(-1.0f / (static_cast<float>(sr) * releaseMs * 0.001f));
+        float threshLin = juce::Decibels::decibelsToGain(thresholdDb);
+        float ratioFactor = (ratio > 1.0f) ? (1.0f - 1.0f / ratio) : 0.0f;
+        float makeupLinConst = autoGain ? 1.0f : juce::Decibels::decibelsToGain(makeupDb);
+        float halfKneeLin = (kneeDb > 0.0f) ? juce::Decibels::decibelsToGain(-kneeDb * 0.5f) : 1.0f;
 
         float peakLevel = 0.0f;
+
+        // Get raw channel pointers for fast inner loop
+        float* chPtrs[2] = { nullptr, nullptr };
+        for (int ch = 0; ch < numChannels; ++ch)
+            chPtrs[ch] = buffer.getWritePointer(ch);
 
         for (int i = 0; i < numSamples; ++i)
         {
             // Detect level (max across channels)
             float inputLevel = 0.0f;
             for (int ch = 0; ch < numChannels; ++ch)
-                inputLevel = std::max(inputLevel, std::abs(buffer.getSample(ch, i)));
+            {
+                float absVal = std::abs(chPtrs[ch][i]);
+                if (absVal > inputLevel) inputLevel = absVal;
+            }
 
             // Envelope follower
             if (inputLevel > envelope)
@@ -55,39 +67,47 @@ public:
             else
                 envelope = releaseCoeff * envelope + (1.0f - releaseCoeff) * inputLevel;
 
-            float envDb = juce::Decibels::gainToDecibels(envelope, -100.0f);
+            // Gain computation — linear domain (avoids per-sample dB conversions)
+            float gainLin = 1.0f;
+            if (envelope > threshLin && ratioFactor > 0.0f)
+            {
+                if (kneeDb > 0.0f && envelope < threshLin / halfKneeLin)
+                {
+                    // Soft knee region — blend
+                    float kneeBlend = (envelope - threshLin * halfKneeLin) / (threshLin * (1.0f / halfKneeLin - halfKneeLin));
+                    kneeBlend = juce::jlimit(0.0f, 1.0f, kneeBlend);
+                    float fullGR = std::pow(threshLin / envelope, ratioFactor);
+                    gainLin = 1.0f + kneeBlend * (fullGR - 1.0f);
+                }
+                else
+                {
+                    gainLin = std::pow(threshLin / envelope, ratioFactor);
+                }
+            }
 
-            // Gain computer with soft/hard knee
-            float gainReduction = computeGainReduction(envDb);
+            // Auto-gain makeup: compensate by half the gain reduction
+            float makeup = autoGain ? (1.0f / std::sqrt(std::max(gainLin, 0.01f))) : makeupLinConst;
 
             // THD — add harmonic warmth
             float thdGain = 1.0f;
             if (thdMode > 0)
                 thdGain = applyTHD(envelope);
 
-            float gainLin = juce::Decibels::decibelsToGain(gainReduction);
-            float makeup = autoGain ? juce::Decibels::decibelsToGain(-gainReduction * 0.5f)
-                                    : juce::Decibels::decibelsToGain(makeupDb);
-
+            float combined = gainLin * makeup * thdGain;
             for (int ch = 0; ch < numChannels; ++ch)
             {
-                float sample = buffer.getSample(ch, i);
-                sample *= gainLin * makeup * thdGain;
-                buffer.setSample(ch, i, sample);
+                chPtrs[ch][i] *= combined;
+                float absOut = std::abs(chPtrs[ch][i]);
+                if (absOut > peakLevel) peakLevel = absOut;
             }
-
-            for (int ch = 0; ch < numChannels; ++ch)
-                peakLevel = std::max(peakLevel, std::abs(buffer.getSample(ch, i)));
         }
 
-        // Auto-level: normalize output to target
+        // Auto-level: normalize output to target (once per block)
         if (autoLevel && peakLevel > 0.0f)
         {
             float targetGain = juce::Decibels::decibelsToGain(autoLevelTarget);
-            float correction = targetGain / peakLevel;
-            correction = std::min(correction, 6.0f); // limit to +15 dB max
-            for (int ch = 0; ch < numChannels; ++ch)
-                buffer.applyGain(ch, 0, numSamples, correction);
+            float correction = std::min(targetGain / peakLevel, 6.0f);
+            buffer.applyGain(0, numSamples, correction);
         }
 
         // Output gain

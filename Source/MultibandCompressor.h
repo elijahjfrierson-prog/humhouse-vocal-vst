@@ -182,45 +182,54 @@ private:
         float attackCoeff  = std::exp(-1.0f / (static_cast<float>(sr) * p.attack  * 0.001f));
         float releaseCoeff = std::exp(-1.0f / (static_cast<float>(sr) * p.release * 0.001f));
         float makeupLin = juce::Decibels::decibelsToGain(p.makeup);
+        // Pre-compute ratio factor for linear-domain gain approximation
+        float ratioFactor = (p.ratio > 1.0f) ? (1.0f - 1.0f / p.ratio) : 0.0f;
 
-        float maxGR = 0.0f;
+        float minGainLin = 1.0f;
+
+        // Get raw pointers for inner loop (avoid per-sample getSample/setSample overhead)
+        float* chPtrs[2] = { nullptr, nullptr };
+        for (int ch = 0; ch < numChannels; ++ch)
+            chPtrs[ch] = bandBuffers[band].getWritePointer(ch);
 
         for (int s = 0; s < numSamples; ++s)
         {
             // Compute level (max across channels)
             float level = 0.0f;
             for (int ch = 0; ch < numChannels; ++ch)
-                level = juce::jmax(level, std::abs(bandBuffers[band].getSample(ch, s)));
+            {
+                float absVal = std::abs(chPtrs[ch][s]);
+                if (absVal > level) level = absVal;
+            }
 
             // Envelope follower
             float coeff = (level > envFollower[band]) ? attackCoeff : releaseCoeff;
             envFollower[band] = coeff * envFollower[band] + (1.0f - coeff) * level;
 
-            // Gain computation
+            // Gain computation — linear domain approximation (avoids log/pow per sample)
             float env = envFollower[band];
             float gainLin = 1.0f;
-            if (env > threshLin && p.ratio > 1.0f)
+            if (env > threshLin && ratioFactor > 0.0f)
             {
-                float envDb = juce::Decibels::gainToDecibels(env);
-                float overDb = envDb - p.threshold;
-                float compressedDb = p.threshold + overDb / p.ratio;
-                gainLin = juce::Decibels::decibelsToGain(compressedDb - envDb);
+                // Linear-domain gain: (threshold/envelope)^(1 - 1/ratio)
+                // Using std::pow once instead of log10->divide->pow10 chain
+                gainLin = std::pow(threshLin / env, ratioFactor);
             }
 
-            float gr = juce::Decibels::gainToDecibels(gainLin);
-            maxGR = juce::jmin(maxGR, gr);
+            if (gainLin < minGainLin) minGainLin = gainLin;
 
             // Apply gain + makeup + parallel mix
+            float combined = gainLin * makeupLin;
             for (int ch = 0; ch < numChannels; ++ch)
             {
-                float dry = bandBuffers[band].getSample(ch, s);
-                float wet = dry * gainLin * makeupLin;
-                float out = dry * (1.0f - p.mix) + wet * p.mix;
-                bandBuffers[band].setSample(ch, s, out);
+                float dry = chPtrs[ch][s];
+                float wet = dry * combined;
+                chPtrs[ch][s] = dry * (1.0f - p.mix) + wet * p.mix;
             }
         }
 
-        gainReduction[band].store(maxGR);
+        // Convert final min gain to dB for UI feedback (once per block, not per sample)
+        gainReduction[band].store(juce::Decibels::gainToDecibels(minGainLin, -60.0f));
     }
 };
 

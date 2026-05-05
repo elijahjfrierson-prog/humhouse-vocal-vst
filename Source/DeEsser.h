@@ -58,56 +58,66 @@ public:
         // Envelope follower coefficients
         float attackCoeff  = std::exp(-1.0f / (static_cast<float>(sr) * 0.0005f));  // 0.5ms attack
         float releaseCoeff = std::exp(-1.0f / (static_cast<float>(sr) * 0.015f));   // 15ms release
+        float threshLin = juce::Decibels::decibelsToGain(thresholdDb);
+        float maxReductionLin = juce::Decibels::decibelsToGain(reductionDb); // negative dB → < 1.0
 
         float peakGR = 0.0f;
+
+        // Raw pointers for fast inner loop
+        float* bufPtrs[2] = { nullptr, nullptr };
+        const float* scPtrs[2] = { nullptr, nullptr };
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            bufPtrs[ch] = buffer.getWritePointer(ch);
+            scPtrs[ch] = sidechainBuffer.getReadPointer(ch);
+        }
 
         for (int i = 0; i < numSamples; ++i)
         {
             float level = 0.0f;
             for (int ch = 0; ch < numChannels; ++ch)
-                level = std::max(level, std::abs(sidechainBuffer.getSample(ch, i)));
+            {
+                float absVal = std::abs(scPtrs[ch][i]);
+                if (absVal > level) level = absVal;
+            }
 
             if (level > envelope)
                 envelope = attackCoeff * envelope + (1.0f - attackCoeff) * level;
             else
                 envelope = releaseCoeff * envelope + (1.0f - releaseCoeff) * level;
 
-            float envDb = juce::Decibels::gainToDecibels(envelope, -100.0f);
+            // Linear-domain threshold comparison (avoids per-sample dB conversion)
             float gain = 1.0f;
-
-            if (envDb > thresholdDb)
+            if (envelope > threshLin)
             {
-                float overDb = envDb - thresholdDb;
-                // Soft-knee: smooth onset of reduction
+                // Over-threshold ratio in linear domain
+                float overRatio = envelope / threshLin;
+                // Soft knee approximation: smooth blend for small overages
+                float overDb = 20.0f * std::log10(overRatio);
                 float knee = 3.0f;
-                float effectiveOver = overDb;
-                if (overDb < knee)
-                    effectiveOver = (overDb * overDb) / (2.0f * knee);
+                float effectiveOver = (overDb < knee) ? (overDb * overDb) / (2.0f * knee) : overDb;
                 float reductionApplied = std::min(effectiveOver, -reductionDb);
-                gain = juce::Decibels::decibelsToGain(-reductionApplied);
-                peakGR = std::max(peakGR, reductionApplied);
+                gain = std::pow(10.0f, -reductionApplied * 0.05f);
+                if (reductionApplied > peakGR) peakGR = reductionApplied;
             }
 
             if (listenMode)
             {
-                // Listen mode: output only the sibilance band
                 for (int ch = 0; ch < numChannels; ++ch)
-                    buffer.setSample(ch, i, sidechainBuffer.getSample(ch, i));
+                    bufPtrs[ch][i] = scPtrs[ch][i];
             }
             else if (mode == 1)
             {
-                // Wideband mode: attenuate the full signal
                 for (int ch = 0; ch < numChannels; ++ch)
-                    buffer.setSample(ch, i, buffer.getSample(ch, i) * gain);
+                    bufPtrs[ch][i] *= gain;
             }
             else
             {
-                // Split-band mode: only attenuate the sibilance band
                 for (int ch = 0; ch < numChannels; ++ch)
                 {
-                    float dry = buffer.getSample(ch, i);
-                    float sib = sidechainBuffer.getSample(ch, i);
-                    buffer.setSample(ch, i, dry - sib * (1.0f - gain));
+                    float dry = bufPtrs[ch][i];
+                    float sib = scPtrs[ch][i];
+                    bufPtrs[ch][i] = dry - sib * (1.0f - gain);
                 }
             }
         }
